@@ -5,3 +5,4 @@ buildroot-*
 dist
 wip
 tmp
+.idea

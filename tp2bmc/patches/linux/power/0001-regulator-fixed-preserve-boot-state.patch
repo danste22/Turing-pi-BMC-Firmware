@@ -1,12 +1,12 @@
 From c6135e0fbf2e5e1d6a5aa57b84179956bb45faba Mon Sep 17 00:00:00 2001
 From: Sven Rademakers <sven.rademakers@gmail.com>
 Date: Sun, 14 Jul 2024 17:26:39 +0100
-Subject: [PATCH 1/2] regulator-fixed: perserve boot state
+Subject: [PATCH 1/2] regulator-fixed: preserve boot state
 
 Maintain a shadow bitmap of the latches in memory, so that when hot rebooting
 the initialization of those latches can be omitted.
 
-* added a new dts node attribute perserve-boot-state
+* added a new dts node attribute preserve-boot-state
 * omits initialization when this attribute is present
 * added an get function that reads the shadow bitmap to check which
   latches are currently on.
@@ -179,8 +179,8 @@ index cb93e5cdcfa9..e1f9cc088b00 100644
  
  	of_property_read_u32(np, "startup-delay-us", &config->startup_delay);
  	of_property_read_u32(np, "off-on-delay-us", &config->off_on_delay);
-+	if (of_property_present(np, "perserve-boot-state")) {
-+		config->perserve_boot_state = 1;
++	if (of_property_present(np, "preserve-boot-state")) {
++		config->preserve_boot_state = 1;
 +	}
  
  	if (of_property_present(np, "vin-supply"))
@@ -197,7 +197,7 @@ index cb93e5cdcfa9..e1f9cc088b00 100644
 -		gflags = GPIOD_OUT_HIGH;
 -	else
 -		gflags = GPIOD_OUT_LOW;
-+	if (config->perserve_boot_state) {
++	if (config->preserve_boot_state) {
 +		gflags = GPIOD_ASIS;
 +	} else {
 +		/*
@@ -220,7 +220,7 @@ index 55319943fcc5..b9d0d84d65be 100644
  	unsigned startup_delay;
  	unsigned int off_on_delay;
  	unsigned enabled_at_boot:1;
-+	unsigned perserve_boot_state;
++	unsigned preserve_boot_state;
  	struct regulator_init_data *init_data;
  };
  
