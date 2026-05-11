@@ -1,7 +1,7 @@
-From c512c54f99e61e40c6363f5a03a8d4ca5abddf05 Mon Sep 17 00:00:00 2001
+From 12ec2e72a5f0450ecd917a9bb03321de6154248f Mon Sep 17 00:00:00 2001
 From: Aleksandr Shubin <privatesub2@gmail.com>
 Date: Wed, 31 Jan 2024 15:59:15 +0300
-Subject: [PATCH 2/3] pwm: Add Allwinner's D1/T113-S3/R329 SoCs PWM support
+Subject: [PATCH 2/4] pwm: Add Allwinner's D1/T113-S3/R329 SoCs PWM support
 
 Allwinner's D1, T113-S3 and R329 SoCs have a quite different PWM
 controllers with ones supported by pwm-sun4i driver.
@@ -10,21 +10,25 @@ This patch adds a PWM controller driver for Allwinner's D1,
 T113-S3 and R329 SoCs. The main difference between these SoCs
 is the number of channels defined by the DT property.
 
+[Rebased onto v6.18.27 by Turing Pi BMC firmware: switch to the
+ devm_pwmchip_alloc()/pwmchip_get_drvdata() API and use .remove,
+ matching the post-v6.7 PWM core API.]
+
 Co-developed-by: Brandon Cheo Fusi <fusibrandon13@gmail.com>
 Signed-off-by: Brandon Cheo Fusi <fusibrandon13@gmail.com>
 Signed-off-by: Aleksandr Shubin <privatesub2@gmail.com>
 ---
  drivers/pwm/Kconfig      |  10 ++
  drivers/pwm/Makefile     |   1 +
- drivers/pwm/pwm-sun20i.c | 380 +++++++++++++++++++++++++++++++++++++++
- 3 files changed, 391 insertions(+)
+ drivers/pwm/pwm-sun20i.c | 351 +++++++++++++++++++++++++++++++++++++++
+ 3 files changed, 362 insertions(+)
  create mode 100644 drivers/pwm/pwm-sun20i.c
 
 diff --git a/drivers/pwm/Kconfig b/drivers/pwm/Kconfig
-index 4b956d661755..d2e0a080eb3c 100644
+index c2fd3f4b62d9..a5b5ec8c6597 100644
 --- a/drivers/pwm/Kconfig
 +++ b/drivers/pwm/Kconfig
-@@ -625,6 +625,16 @@ config PWM_SUN4I
+@@ -726,6 +726,16 @@ config PWM_SUN4I
  	  To compile this driver as a module, choose M here: the module
  	  will be called pwm-sun4i.
  
@@ -42,10 +46,10 @@ index 4b956d661755..d2e0a080eb3c 100644
  	tristate "Sunplus PWM support"
  	depends on ARCH_SUNPLUS || COMPILE_TEST
 diff --git a/drivers/pwm/Makefile b/drivers/pwm/Makefile
-index c5ec9e168ee7..dcad0d5a2430 100644
+index dfa8b4966ee1..9e62ce0e0a02 100644
 --- a/drivers/pwm/Makefile
 +++ b/drivers/pwm/Makefile
-@@ -58,6 +58,7 @@ obj-$(CONFIG_PWM_STM32)		+= pwm-stm32.o
+@@ -66,6 +66,7 @@ obj-$(CONFIG_PWM_STM32)		+= pwm-stm32.o
  obj-$(CONFIG_PWM_STM32_LP)	+= pwm-stm32-lp.o
  obj-$(CONFIG_PWM_STMPE)		+= pwm-stmpe.o
  obj-$(CONFIG_PWM_SUN4I)		+= pwm-sun4i.o
@@ -55,10 +59,10 @@ index c5ec9e168ee7..dcad0d5a2430 100644
  obj-$(CONFIG_PWM_TIECAP)	+= pwm-tiecap.o
 diff --git a/drivers/pwm/pwm-sun20i.c b/drivers/pwm/pwm-sun20i.c
 new file mode 100644
-index 000000000000..19bf3f495155
+index 000000000000..60c2e9bafedc
 --- /dev/null
 +++ b/drivers/pwm/pwm-sun20i.c
-@@ -0,0 +1,380 @@
+@@ -0,0 +1,351 @@
 +// SPDX-License-Identifier: GPL-2.0
 +/*
 + * PWM Controller Driver for sunxi platforms (D1, T113-S3 and R329)
@@ -114,39 +118,8 @@ index 000000000000..19bf3f495155
 + * SUN20I_PWM_MAGIC is derived by solving for div_m and prescale_k
 + * such that for a given requested period,
 + *
-+ * i) div_m is minimized for any prescale_k ≤ SUN20I_PWM_CTL_PRESCAL_K_MAX,
++ * i) div_m is minimized for any prescale_k <= SUN20I_PWM_CTL_PRESCAL_K_MAX,
 + * ii) prescale_k is minimized.
-+ *
-+ * The derivation proceeds as follows, with val = # of cycles for reqested
-+ * period:
-+ *
-+ * for a given value of div_m we want the smallest prescale_k such that
-+ *
-+ * (val >> div_m) // (prescale_k + 1) ≤ 65536 (SUN20I_PWM_PCNTR_SIZE)
-+ *
-+ * This is equivalent to:
-+ *
-+ * (val >> div_m) ≤ 65536 * (prescale_k + 1) + prescale_k
-+ * ⟺ (val >> div_m) ≤ 65537 * prescale_k + 65536
-+ * ⟺ (val >> div_m) - 65536 ≤ 65537 * prescale_k
-+ * ⟺ ((val >> div_m) - 65536) / 65537 ≤ prescale_k
-+ *
-+ * As prescale_k is integer, this becomes
-+ *
-+ * ((val >> div_m) - 65536) // 65537 ≤ prescale_k
-+ *
-+ * And is minimized at
-+ *
-+ * ((val >> div_m) - 65536) // 65537
-+ *
-+ * Now we pick the smallest div_m that satifies prescale_k ≤ 255
-+ * (i.e SUN20I_PWM_CTL_PRESCAL_K_MAX),
-+ *
-+ * ((val >> div_m) - 65536) // 65537 ≤ 255
-+ * ⟺ (val >> div_m) - 65536 ≤ 255 * 65537 + 65536
-+ * ⟺ val >> div_m ≤ 255 * 65537 + 2 * 65536
-+ * ⟺ val >> div_m < (255 * 65537 + 2 * 65536 + 1)
-+ * ⟺ div_m = fls((val) / (255 * 65537 + 2 * 65536 + 1))
 + *
 + * Suggested by Uwe Kleine-König
 + */
@@ -155,7 +128,6 @@ index 000000000000..19bf3f495155
 +struct sun20i_pwm_chip {
 +	struct clk *clk_bus, *clk_hosc, *clk_apb0;
 +	struct reset_control *rst;
-+	struct pwm_chip chip;
 +	void __iomem *base;
 +	/* Mutex to protect pwm apply state */
 +	struct mutex mutex;
@@ -163,7 +135,7 @@ index 000000000000..19bf3f495155
 +
 +static inline struct sun20i_pwm_chip *to_sun20i_pwm_chip(struct pwm_chip *chip)
 +{
-+	return container_of(chip, struct sun20i_pwm_chip, chip);
++	return pwmchip_get_drvdata(chip);
 +}
 +
 +static inline u32 sun20i_pwm_readl(struct sun20i_pwm_chip *chip,
@@ -358,11 +330,22 @@ index 000000000000..19bf3f495155
 +static int sun20i_pwm_probe(struct platform_device *pdev)
 +{
 +	struct sun20i_pwm_chip *sun20i_chip;
++	struct pwm_chip *chip;
++	u32 npwm;
 +	int ret;
 +
-+	sun20i_chip = devm_kzalloc(&pdev->dev, sizeof(*sun20i_chip), GFP_KERNEL);
-+	if (!sun20i_chip)
-+		return -ENOMEM;
++	ret = of_property_read_u32(pdev->dev.of_node, "allwinner,pwm-channels",
++				   &npwm);
++	if (ret)
++		npwm = 8;
++
++	if (npwm > 16)
++		npwm = 16;
++
++	chip = devm_pwmchip_alloc(&pdev->dev, npwm, sizeof(*sun20i_chip));
++	if (IS_ERR(chip))
++		return PTR_ERR(chip);
++	sun20i_chip = to_sun20i_pwm_chip(chip);
 +
 +	sun20i_chip->base = devm_platform_ioremap_resource(pdev, 0);
 +	if (IS_ERR(sun20i_chip->base))
@@ -388,40 +371,32 @@ index 000000000000..19bf3f495155
 +		return dev_err_probe(&pdev->dev, PTR_ERR(sun20i_chip->rst),
 +				     "failed to get bus reset\n");
 +
-+	ret = of_property_read_u32(pdev->dev.of_node, "allwinner,pwm-channels",
-+				   &sun20i_chip->chip.npwm);
-+	if (ret)
-+		sun20i_chip->chip.npwm = 8;
-+
-+	if (sun20i_chip->chip.npwm > 16)
-+		sun20i_chip->chip.npwm = 16;
-+
 +	/* Deassert reset */
 +	ret = reset_control_deassert(sun20i_chip->rst);
 +	if (ret)
 +		return dev_err_probe(&pdev->dev, ret, "failed to deassert reset\n");
 +
-+	sun20i_chip->chip.dev = &pdev->dev;
-+	sun20i_chip->chip.ops = &sun20i_pwm_ops;
++	chip->ops = &sun20i_pwm_ops;
 +
 +	mutex_init(&sun20i_chip->mutex);
 +
-+	ret = pwmchip_add(&sun20i_chip->chip);
++	ret = pwmchip_add(chip);
 +	if (ret < 0) {
 +		reset_control_assert(sun20i_chip->rst);
 +		return dev_err_probe(&pdev->dev, ret, "failed to add PWM chip\n");
 +	}
 +
-+	platform_set_drvdata(pdev, sun20i_chip);
++	platform_set_drvdata(pdev, chip);
 +
 +	return 0;
 +}
 +
 +static void sun20i_pwm_remove(struct platform_device *pdev)
 +{
-+	struct sun20i_pwm_chip *sun20i_chip = platform_get_drvdata(pdev);
++	struct pwm_chip *chip = platform_get_drvdata(pdev);
++	struct sun20i_pwm_chip *sun20i_chip = to_sun20i_pwm_chip(chip);
 +
-+	pwmchip_remove(&sun20i_chip->chip);
++	pwmchip_remove(chip);
 +
 +	reset_control_assert(sun20i_chip->rst);
 +}
@@ -432,7 +407,7 @@ index 000000000000..19bf3f495155
 +		.of_match_table = sun20i_pwm_dt_ids,
 +	},
 +	.probe = sun20i_pwm_probe,
-+	.remove_new = sun20i_pwm_remove,
++	.remove = sun20i_pwm_remove,
 +};
 +module_platform_driver(sun20i_pwm_driver);
 +
@@ -440,4 +415,5 @@ index 000000000000..19bf3f495155
 +MODULE_DESCRIPTION("Allwinner sun20i PWM driver");
 +MODULE_LICENSE("GPL");
 -- 
-2.45.2
+2.50.1 (Apple Git-155)
+

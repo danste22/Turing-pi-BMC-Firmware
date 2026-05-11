@@ -1,4 +1,4 @@
-From dc6fcc9da064279e883182c0bdd56b31b1336c0f Mon Sep 17 00:00:00 2001
+From a89c601daf535d42048c26acc9f540b6d1c1142f Mon Sep 17 00:00:00 2001
 From: Sam Edwards <sam@turingpi.com>
 Date: Tue, 19 Mar 2024 16:52:21 -0600
 Subject: [PATCH 4/5] i2c: mv64xxx: Allow continuing after read
@@ -28,10 +28,10 @@ Signed-off-by: Sam Edwards <sam@turingpi.com>
  1 file changed, 16 insertions(+), 31 deletions(-)
 
 diff --git a/drivers/i2c/busses/i2c-mv64xxx.c b/drivers/i2c/busses/i2c-mv64xxx.c
-index 2ead2d39dc3f..514d7ba5c9a3 100644
+index 352ace55bf93..146740728e73 100644
 --- a/drivers/i2c/busses/i2c-mv64xxx.c
 +++ b/drivers/i2c/busses/i2c-mv64xxx.c
-@@ -115,9 +115,9 @@ enum mv64xxx_i2c_action {
+@@ -114,9 +114,9 @@ enum mv64xxx_i2c_action {
  	MV64XXX_I2C_ACTION_SEND_ADDR_1,
  	MV64XXX_I2C_ACTION_SEND_ADDR_2,
  	MV64XXX_I2C_ACTION_SEND_DATA,
@@ -43,7 +43,7 @@ index 2ead2d39dc3f..514d7ba5c9a3 100644
  };
  
  struct mv64xxx_i2c_regs {
-@@ -394,16 +394,15 @@ mv64xxx_i2c_fsm(struct mv64xxx_i2c_data *drv_data, u32 status)
+@@ -388,16 +388,15 @@ mv64xxx_i2c_fsm(struct mv64xxx_i2c_data *drv_data, u32 status)
  
  	case MV64XXX_I2C_STATE_READ:
  		if (drv_data->bytes_left == 0) {
@@ -67,7 +67,7 @@ index 2ead2d39dc3f..514d7ba5c9a3 100644
  
  			/*
  			 * bytes_left counts the remaining read actions to send
-@@ -418,6 +417,8 @@ mv64xxx_i2c_fsm(struct mv64xxx_i2c_data *drv_data, u32 status)
+@@ -412,6 +411,8 @@ mv64xxx_i2c_fsm(struct mv64xxx_i2c_data *drv_data, u32 status)
  			if (drv_data->bytes_left == 0)
  				drv_data->cntl_bits &= ~MV64XXX_I2C_REG_CONTROL_ACK;
  		}
@@ -76,7 +76,7 @@ index 2ead2d39dc3f..514d7ba5c9a3 100644
  		break;
  
  	case MV64XXX_I2C_STATE_WRITE:
-@@ -457,6 +458,11 @@ static void mv64xxx_i2c_send_start(struct mv64xxx_i2c_data *drv_data)
+@@ -451,6 +452,11 @@ static void mv64xxx_i2c_send_start(struct mv64xxx_i2c_data *drv_data)
  static void
  mv64xxx_i2c_do_action(struct mv64xxx_i2c_data *drv_data)
  {
@@ -88,7 +88,7 @@ index 2ead2d39dc3f..514d7ba5c9a3 100644
  	switch(drv_data->action) {
  	case MV64XXX_I2C_ACTION_SEND_RESTART:
  		/* We should only get here if we have further messages */
-@@ -503,27 +509,6 @@ mv64xxx_i2c_do_action(struct mv64xxx_i2c_data *drv_data)
+@@ -497,27 +503,6 @@ mv64xxx_i2c_do_action(struct mv64xxx_i2c_data *drv_data)
  			drv_data->reg_base + drv_data->reg_offsets.control);
  		break;
  
@@ -117,4 +117,5 @@ index 2ead2d39dc3f..514d7ba5c9a3 100644
  	default:
  		dev_err(&drv_data->adapter.dev,
 -- 
-2.45.2
+2.50.1 (Apple Git-155)
+

@@ -1,4 +1,4 @@
-From aedfcd08fe249fe54515a3fbb28a474db7ee8851 Mon Sep 17 00:00:00 2001
+From a4e421e12901b3d14ce58da50d8c218ab5117053 Mon Sep 17 00:00:00 2001
 From: Sam Edwards <sam@turingpi.com>
 Date: Tue, 19 Mar 2024 16:52:10 -0600
 Subject: [PATCH 2/5] i2c: mv64xxx: Clean up the private data struct
@@ -14,10 +14,10 @@ Signed-off-by: Sam Edwards <sam@turingpi.com>
  1 file changed, 13 insertions(+), 13 deletions(-)
 
 diff --git a/drivers/i2c/busses/i2c-mv64xxx.c b/drivers/i2c/busses/i2c-mv64xxx.c
-index 958c52c799d4..8b931c803f30 100644
+index 3cb6e42a2bcb..e8b4f7031c6f 100644
 --- a/drivers/i2c/busses/i2c-mv64xxx.c
 +++ b/drivers/i2c/busses/i2c-mv64xxx.c
-@@ -82,7 +82,7 @@
+@@ -81,7 +81,7 @@
  #define	MV64XXX_I2C_BRIDGE_STATUS_ERROR			BIT(0)
  
  /* Driver states */
@@ -26,7 +26,7 @@ index 958c52c799d4..8b931c803f30 100644
  	MV64XXX_I2C_STATE_INVALID,
  	MV64XXX_I2C_STATE_IDLE,
  	MV64XXX_I2C_STATE_WAITING_FOR_START_COND,
-@@ -94,7 +94,7 @@ enum {
+@@ -93,7 +93,7 @@ enum {
  };
  
  /* Driver actions */
@@ -35,7 +35,7 @@ index 958c52c799d4..8b931c803f30 100644
  	MV64XXX_I2C_ACTION_INVALID,
  	MV64XXX_I2C_ACTION_CONTINUE,
  	MV64XXX_I2C_ACTION_SEND_RESTART,
-@@ -120,21 +120,21 @@ struct mv64xxx_i2c_data {
+@@ -119,21 +119,21 @@ struct mv64xxx_i2c_data {
  	struct i2c_msg		*msgs;
  	int			num_msgs;
  	int			irq;
@@ -69,4 +69,5 @@ index 958c52c799d4..8b931c803f30 100644
  	struct clk              *reg_clk;
  	wait_queue_head_t	waitq;
 -- 
-2.45.2
+2.50.1 (Apple Git-155)
+
