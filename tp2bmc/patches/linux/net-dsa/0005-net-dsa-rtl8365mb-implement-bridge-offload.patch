@@ -1,0 +1,305 @@
+From: Sam Edwards <CFSworks@gmail.com>
+Date: Mon, 11 May 2026 10:30:00 +0200
+Subject: [PATCH 5/5] net: dsa: rtl8365mb: implement bridge offload
+
+The rtl8365mb driver currently configures every port to trap all
+ingress traffic to the CPU (forward-only-to-CPU + learning disabled),
+which makes the chip behave like a dumb "pass everything to Linux"
+NIC array. That works, but it means every byte that crosses two
+switch ports has to make a round-trip through the SoC, the DSA tag
+parser, and the Linux bridge driver. On a low-end host (e.g. the
+T113-S3 BMC on the Turing Pi 2) this caps cross-port throughput at
+a fraction of wire speed.
+
+Implement DSA bridge offload so that when user-space puts a set of
+ports into a Linux bridge, the chip forwards frames between those
+ports in hardware:
+
+  - Add `port_bridge_join` / `port_bridge_leave` ops. On join the
+    port's EFID is set to the DSA bridge index (so the chip's L2
+    lookup tables stay logically separated per bridge) and the
+    port's isolation mask is updated to forward only to other
+    members of the same bridge + the CPU. On leave the port is
+    flipped back to the standalone "trap everything" state.
+
+  - Add `rtl8365mb_port_set_trapping()` which puts a port into
+    dot1x UNAUTH/TRAP mode. We piggy-back on the dot1x feature
+    (which the driver otherwise does not use) because it gives us
+    a clean "ingress -> CPU" override that is independent of the
+    port's STP state and learning configuration.
+
+  - Replace the per-port setup defaults: instead of
+    `set_isolation(cpu->mask) + set_learning(false)` use
+    `set_isolation(0) + set_trapping(true)`. The trap-on-setup step
+    is gated on `dsa_is_user_port()` because the chip's dot1x
+    UNAUTH/TRAP mode also disables CPU-tag insertion on frames the
+    fabric forwards to the CPU port; putting the CPU port itself in
+    trap mode therefore breaks `tag_rtl8_4` reception on the SoC.
+    The end result for an un-bridged user port is the same as
+    before (frames go up to the CPU), but the transition into and
+    out of the bridged state becomes a single register flip per
+    port.
+
+  - Advertise `ds->fdb_isolation = true` and
+    `ds->max_num_bridges = 7` so DSA only assigns bridge indices
+    that fit in the 3-bit EFID field. (Bridge index 0 stays
+    reserved for the implicit standalone group.)
+
+The previously-only-from-setup `rtl8365mb_port_set_learning()` is
+kept and marked `__maybe_unused` so the abstraction is still
+available for a future switchdev `port_pre_bridge_flags`/
+`port_bridge_flags(BR_LEARNING)` implementation.
+
+This patch is the v6.18 rebase of the bridge-offload portion of
+the original out-of-tree "net-dsa realtek-switch" series; the
+companion `tag_rtl8_4` REASON-code update is in patch 1 of this
+series.
+
+Signed-off-by: Sam Edwards <CFSworks@gmail.com>
+---
+ drivers/net/dsa/realtek/rtl8365mb.c | 168 ++++++++++++++++++++++++++--
+ 1 file changed, 161 insertions(+), 7 deletions(-)
+
+diff --git a/drivers/net/dsa/realtek/rtl8365mb.c b/drivers/net/dsa/realtek/rtl8365mb.c
+index 8d0b67632328..0cf294ecd30a 100644
+--- a/drivers/net/dsa/realtek/rtl8365mb.c
++++ b/drivers/net/dsa/realtek/rtl8365mb.c
+@@ -278,12 +278,38 @@
+ #define RTL8365MB_LUT_PORT_LEARN_LIMIT_REG(_physport) \
+ 		(RTL8365MB_LUT_PORT_LEARN_LIMIT_BASE + (_physport))
+ 
++/* Port-based EFID registers - used to assign FIDs to bridges */
++#define RTL8365MB_PORT_EFID_BASE			0x0A32
++#define   RTL8365MB_PORT_EFID_REG(_physport) \
++		(RTL8365MB_PORT_EFID_BASE + ((_physport) >> 2))
++#define   RTL8365MB_PORT_EFID_OFFSET(_physport) \
++		(((_physport) & 0x3) << 2)
++#define   RTL8365MB_PORT_EFID_MASK(_physport) \
++		(0x7 << RTL8365MB_PORT_EFID_OFFSET((_physport)))
++
+ /* Port isolation (forwarding mask) registers */
+ #define RTL8365MB_PORT_ISOLATION_REG_BASE		0x08A2
+ #define RTL8365MB_PORT_ISOLATION_REG(_physport) \
+ 		(RTL8365MB_PORT_ISOLATION_REG_BASE + (_physport))
+ #define   RTL8365MB_PORT_ISOLATION_MASK			0x07FF
+ 
++/* Dot1x registers - used to put ports in UNAUTH mode so ingress
++ * traffic is trapped to the CPU before any L2 forwarding decision.
++ * The dot1x functionality isn't used elsewhere in the driver, so
++ * this is a convenient mechanism for trapping ingress when a port
++ * is standalone (not part of a hardware-offloaded bridge).
++ */
++#define RTL8365MB_DOT1X_PORT_ENABLE_REG			0x0A80
++#define RTL8365MB_DOT1X_PORT_AUTH_REG			0x0A82
++#define RTL8365MB_DOT1X_PORT_OPDIR_REG			0x0A83
++#define RTL8365MB_DOT1X_UNAUTH_ACT_BASE			0x0A84
++#define   RTL8365MB_DOT1X_UNAUTH_ACT_REG(_physport) \
++		(RTL8365MB_DOT1X_UNAUTH_ACT_BASE + ((_physport) >> 3))
++#define   RTL8365MB_DOT1X_UNAUTH_ACT_OFFSET(_physport) \
++		(((_physport) & 0x7) << 1)
++#define   RTL8365MB_DOT1X_UNAUTH_ACT_MASK(_physport) \
++		(0x3 << RTL8365MB_DOT1X_UNAUTH_ACT_OFFSET((_physport)))
++
+ /* MSTP port state registers - indexed by tree instance */
+ #define RTL8365MB_MSTI_CTRL_BASE			0x0A00
+ #define RTL8365MB_MSTI_CTRL_REG(_msti, _physport) \
+@@ -600,6 +626,12 @@ enum rtl8365mb_cpu_format {
+ 	RTL8365MB_CPU_FORMAT_4BYTES = 1,
+ };
+ 
++enum rtl8365mb_dot1x_action {
++	RTL8365MB_DOT1X_ACTION_DROP = 0,
++	RTL8365MB_DOT1X_ACTION_TRAP = 1,
++	RTL8365MB_DOT1X_ACTION_VLAN = 2,
++};
++
+ enum rtl8365mb_cpu_rxlen {
+ 	RTL8365MB_CPU_RXLEN_72BYTES = 0,
+ 	RTL8365MB_CPU_RXLEN_64BYTES = 1,
+@@ -1214,8 +1246,8 @@ static void rtl8365mb_port_stp_state_set(struct dsa_switch *ds, int port,
+ 			   val << RTL8365MB_MSTI_CTRL_PORT_STATE_OFFSET(port));
+ }
+ 
+-static int rtl8365mb_port_set_learning(struct realtek_priv *priv, int port,
+-				       bool enable)
++static int __maybe_unused
++rtl8365mb_port_set_learning(struct realtek_priv *priv, int port, bool enable)
+ {
+ 	/* Enable/disable learning by limiting the number of L2 addresses the
+ 	 * port can learn. Realtek documentation states that a limit of zero
+@@ -1232,6 +1264,118 @@ static int rtl8365mb_port_set_isolation(struct realtek_priv *priv, int port,
+ 	return regmap_write(priv->map, RTL8365MB_PORT_ISOLATION_REG(port), mask);
+ }
+ 
++/* Trap ingress traffic on a port to the CPU before any L2 forwarding
++ * decision is made. Used for ports that are standalone (not part of
++ * a hardware-offloaded bridge) so the Linux bridge driver can do
++ * software forwarding instead.
++ */
++static int rtl8365mb_port_set_trapping(struct realtek_priv *priv, int port,
++				       bool enable)
++{
++	int ret;
++
++	ret = regmap_update_bits(priv->map, RTL8365MB_DOT1X_PORT_ENABLE_REG,
++				 BIT(port), enable ? BIT(port) : 0);
++	if (ret)
++		return ret;
++
++	if (!enable)
++		return 0;
++
++	ret = regmap_update_bits(priv->map, RTL8365MB_DOT1X_PORT_AUTH_REG,
++				 BIT(port), 0);
++	if (ret)
++		return ret;
++
++	/* Match on input only */
++	ret = regmap_update_bits(priv->map, RTL8365MB_DOT1X_PORT_OPDIR_REG,
++				 BIT(port), BIT(port));
++	if (ret)
++		return ret;
++
++	/* Set action to TRAP */
++	return regmap_update_bits(priv->map,
++				  RTL8365MB_DOT1X_UNAUTH_ACT_REG(port),
++				  RTL8365MB_DOT1X_UNAUTH_ACT_MASK(port),
++				  RTL8365MB_DOT1X_ACTION_TRAP <<
++					RTL8365MB_DOT1X_UNAUTH_ACT_OFFSET(port));
++}
++
++/* Tag a port with an "extended FID", which the chip uses to keep
++ * L2 lookups for different bridges in separate logical tables.
++ * We use the DSA bridge index as the EFID, so the chip implicitly
++ * supports up to 7 simultaneous hardware-offloaded bridges.
++ */
++static int rtl8365mb_port_set_efid(struct realtek_priv *priv, int port, u8 efid)
++{
++	return regmap_update_bits(priv->map, RTL8365MB_PORT_EFID_REG(port),
++				  RTL8365MB_PORT_EFID_MASK(port),
++				  efid << RTL8365MB_PORT_EFID_OFFSET(port));
++}
++
++/* Recompute the per-port isolation (forwarding) mask for every port
++ * that is a member of the given bridge. The CPU port(s) are always
++ * included as forwarding targets so trapped/flooded frames still
++ * reach Linux.
++ */
++static int rtl8365mb_bridge_apply_isolation(struct realtek_priv *priv,
++					    const struct dsa_bridge *bridge)
++{
++	struct rtl8365mb *mb = priv->chip_data;
++	struct rtl8365mb_cpu *cpu = &mb->cpu;
++	unsigned long cpu_mask = cpu->mask;
++	unsigned long bridge_mask;
++	int port;
++	int ret;
++
++	bridge_mask = cpu_mask;
++
++	for (int i = 0; i < priv->num_ports; i++) {
++		if (dsa_port_offloads_bridge(dsa_to_port(&priv->ds, i), bridge))
++			bridge_mask |= BIT(i);
++	}
++
++	/* CPU ports' isolation is bypassed in hardware - skip them */
++	for_each_andnot_bit(port, &bridge_mask, &cpu_mask, priv->num_ports) {
++		ret = rtl8365mb_port_set_isolation(priv, port, bridge_mask);
++		if (ret)
++			return ret;
++	}
++
++	return 0;
++}
++
++static int rtl8365mb_port_bridge_join(struct dsa_switch *ds, int port,
++				      struct dsa_bridge bridge,
++				      bool *tx_fwd_offload,
++				      struct netlink_ext_ack *extack)
++{
++	struct realtek_priv *priv = ds->priv;
++	u8 efid = bridge.num;
++	int ret;
++
++	ret = rtl8365mb_port_set_efid(priv, port, efid);
++	if (ret)
++		return ret;
++
++	ret = rtl8365mb_bridge_apply_isolation(priv, &bridge);
++	if (ret)
++		return ret;
++
++	/* Port is now part of a HW-offloaded bridge - stop trapping. */
++	return rtl8365mb_port_set_trapping(priv, port, false);
++}
++
++static void rtl8365mb_port_bridge_leave(struct dsa_switch *ds, int port,
++					struct dsa_bridge bridge)
++{
++	struct realtek_priv *priv = ds->priv;
++
++	/* Going back to standalone - trap ingress to the CPU again. */
++	rtl8365mb_port_set_trapping(priv, port, true);
++	rtl8365mb_bridge_apply_isolation(priv, &bridge);
++}
++
+ static int rtl8365mb_mib_counter_read(struct realtek_priv *priv, int port,
+ 				      u32 offset, u32 length, u64 *mibvalue)
+ {
+@@ -1965,6 +2109,12 @@ static int rtl8365mb_setup(struct dsa_switch *ds)
+ 	int ret;
+ 	int i;
+ 
++	/* Bridges are isolated via per-port EFID (3 bits, so up to 7 user
++	 * bridges in addition to the implicit standalone group).
++	 */
++	ds->fdb_isolation = true;
++	ds->max_num_bridges = 7;
++
+ 	mb = priv->chip_data;
+ 	cpu = &mb->cpu;
+ 
+@@ -2007,15 +2157,25 @@ static int rtl8365mb_setup(struct dsa_switch *ds)
+ 		if (dsa_is_unused_port(ds, i))
+ 			continue;
+ 
+-		/* Forward only to the CPU */
+-		ret = rtl8365mb_port_set_isolation(priv, i, cpu->mask);
++		/* Standalone default: no port-to-port forwarding (the
++		 * per-user-port trap below sends ingress to the CPU
++		 * regardless of isolation; CPU/DSA ports bypass it).
++		 */
++		ret = rtl8365mb_port_set_isolation(priv, i, 0);
+ 		if (ret)
+ 			goto out_teardown_irq;
+ 
+-		/* Disable learning */
+-		ret = rtl8365mb_port_set_learning(priv, i, false);
+-		if (ret)
+-			goto out_teardown_irq;
++		/* User ports start in dot1x UNAUTH/TRAP so all ingress is
++		 * sent to the CPU until the port joins a hardware-offloaded
++		 * bridge. CPU/DSA ports must NOT be put in trap mode - the
++		 * chip then stops inserting the Realtek CPU tag on frames
++		 * forwarded to the SoC and the DSA tag parser drops them.
++		 */
++		if (dsa_is_user_port(ds, i)) {
++			ret = rtl8365mb_port_set_trapping(priv, i, true);
++			if (ret)
++				goto out_teardown_irq;
++		}
+ 
+ 		/* Set the initial STP state of all ports to DISABLED, otherwise
+ 		 * ports will still forward frames to the CPU despite being
+@@ -2151,6 +2311,8 @@ static const struct dsa_switch_ops rtl8365mb_switch_ops = {
+ 	.get_stats64 = rtl8365mb_get_stats64,
+ 	.port_change_mtu = rtl8365mb_port_change_mtu,
+ 	.port_max_mtu = rtl8365mb_port_max_mtu,
++	.port_bridge_join = rtl8365mb_port_bridge_join,
++	.port_bridge_leave = rtl8365mb_port_bridge_leave,
+ };
+ 
+ static const struct realtek_ops rtl8365mb_ops = {
+-- 
+2.50.1 (Apple Git-155)
+
