@@ -2,7 +2,7 @@ KVER   ?= $(shell uname -r)
 KDIR   ?= /lib/modules/$(KVER)/build/
 CC     ?= gcc
 obj-m   = rockusb.o
-CFLAGS_rockusb.o := -Idrivers/usb/storage
+ccflags-y := -I $(srctree)/drivers/usb/storage
 
 all: rockusb.ko
 
