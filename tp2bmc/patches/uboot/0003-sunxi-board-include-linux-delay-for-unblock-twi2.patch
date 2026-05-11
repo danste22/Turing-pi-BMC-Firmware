@@ -1,0 +1,40 @@
+From 71f8b44e6a0d7f89bf3d919a40e70e7077ac6b14 Mon Sep 17 00:00:00 2001
+From: TP2 BMC patcher <tp2bmc@local>
+Date: Sun, 10 May 2026 00:27:30 +0200
+Subject: [PATCH] sunxi: include linux/delay.h for unblock_twi2_bus() udelay()
+
+Turing fork commit 317a236 adds unblock_twi2_bus() in SPL board_init_f
+but never includes <linux/delay.h>. With newer GCC, implicit declaration
+of udelay() is an error in the SPL build:
+
+  spl/arch/arm/mach-sunxi/board.c:480: implicit declaration of function 'udelay'
+
+Also use a proper prototype (void) for -Wstrict-prototypes.
+
+Signed-off-by: TP2 BMC patcher <tp2bmc@local>
+---
+ arch/arm/mach-sunxi/board.c | 4 +++-
+ 1 file changed, 3 insertions(+), 1 deletion(-)
+
+diff --git a/arch/arm/mach-sunxi/board.c b/arch/arm/mach-sunxi/board.c
+index 006e533eaa..66f2042f64 100644
+--- a/arch/arm/mach-sunxi/board.c
++++ b/arch/arm/mach-sunxi/board.c
+@@ -29,6 +29,7 @@
+ #include <asm/arch/mmc.h>
+ 
+ #include <linux/compiler.h>
++#include <linux/delay.h>
+ 
+ int tp_board_init(void);
+ 
+@@ -469,7 +470,8 @@ u32 spl_mmc_boot_mode(struct mmc *mmc, const u32 boot_device)
+ 
+ // In the event the bus hanged because of prior operation, clock out any
+ // residual operations.
+-void unblock_twi2_bus() {
++void unblock_twi2_bus(void)
++{
+     unsigned SCL = SUNXI_GPE(12);
+     unsigned SDA = SUNXI_GPE(13);
+     gpio_direction_output(SCL, 0);
