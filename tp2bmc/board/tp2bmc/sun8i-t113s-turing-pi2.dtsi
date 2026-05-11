@@ -202,13 +202,26 @@
 	pinctrl-0 = <&uart5_pb_pins>;
 };
 
+/*
+ * The Realtek RTL8370MB-CG uses an SMI-over-I2C protocol where the
+ * chip starts driving SDA immediately after ACKing the register
+ * address, without waiting for a repeated-START or STOP.  The hardware
+ * TWI controller cannot handle this (STOP hangs, repeated-START causes
+ * arbitration loss), so we bit-bang the bus via i2c-gpio instead.
+ */
 &i2c2 {
-	status = "okay";
+	status = "disabled";
+};
 
-	pinctrl-names = "default";
-	pinctrl-0 = <&i2c2_pe12_pins>;
+/ {
+i2c_bus2: i2c-bitbang {
+	compatible = "i2c-gpio";
+	sda-gpios = <&pio 4 13 (GPIO_ACTIVE_HIGH | GPIO_OPEN_DRAIN)>;
+	scl-gpios = <&pio 4 12 (GPIO_ACTIVE_HIGH | GPIO_OPEN_DRAIN)>;
+	i2c-gpio,delay-us = <5>;
 
-	clock-frequency = <100000>;
+	#address-cells = <1>;
+	#size-cells = <0>;
 
 	eeprom@50 {
 		compatible = "microchip,24c02", "atmel,24c02";
@@ -225,7 +238,7 @@
 	};
 
 	ethernet_switch: ethernet-switch@5c {
-		compatible = "realtek,rtl8365mb";
+		compatible = "realtek,rtl8365mb-i2c";
 		reg = <0x5c>;
 
 		ethernet-ports {
@@ -306,6 +319,7 @@
 		};
 	};
 };
+}; /* / */
 
 &emac {
 	status = "okay";

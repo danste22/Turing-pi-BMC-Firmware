@@ -19,7 +19,7 @@
 	/delete-node/ rtc@51;
 };
 
-&i2c2 {
+&i2c_bus2 {
 	ext_rtc: rtc@51 {
 		compatible = "nxp,pcf8563";
 		reg = <0x51>;

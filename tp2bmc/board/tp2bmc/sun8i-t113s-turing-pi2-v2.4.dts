@@ -168,7 +168,7 @@
 		reset-gpios = <&pio 6 13 (GPIO_ACTIVE_LOW | GPIO_PULL_UP)>;
 };
 
-&i2c2 {
+&i2c_bus2 {
 	/*
 	 * The TP2 board design includes a 4-pin fan header (J16) and
 	 * SMBus-compatible fan speed controller (U109). They are not populated
