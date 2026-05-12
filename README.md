@@ -7,7 +7,7 @@ The Turing Pi is a compact AI & edge computing cluster purposed to run cloud
 stacks and AI inference at the edge. Find out more on our
 [website](https://turingpi.com).
 
-The firmware is based on a Linux 5.4 kernel and hosts a web interface with a
+The firmware is based on a **Linux** kernel (version pinned in [this table](#versions-defined-in-this-repository)) and hosts a web interface with a
 REST API to control and manage the board. The packages
 [bmcd](https://www.github.com/turing-machines/bmcd),
 [tpi](https://github.com/turing-machines/tpi) and
@@ -36,6 +36,8 @@ facilitate most of this functionality.
   - [Native](#native)
 - [Output](#output)
 - [Development](#development)
+  - [BMC hardware overview](#bmc-hardware-overview)
+  - [BMC rootfs software inventory](#bmc-rootfs-software-inventory)
 
 ## Reporting issues & requesting features
 
@@ -53,51 +55,6 @@ visibility reasons, we will mainly use the issue tracker of this repository.
 - 3 port Gigabit Ethernet Switch (RTL8370MB)
 - Ethernet PHYceiver (RTL8201F-VB-CG)
 - SD card slot
-
-## BMC rootfs software inventory
-
-The BMC image is a **Buildroot** rootfs plus this repo’s **`BR2_EXTERNAL`** (`tp2bmc/`). There are two useful views of “what is installed”:
-
-1. **Versions pinned in *this* repository** — kernel, bootloader, and Turing Pi–owned packages. These are the values you can audit without running a build.
-2. **Everything Buildroot actually compiled into the rootfs** — hundreds of packages and dependencies. The authoritative names and upstream versions appear as **directory names** under Buildroot’s `output/build/` (convention: `<name>-<version>`).
-
-### Versions defined in this repository
-
-| Component | Where the version is pinned |
-|-----------|-------------------------------|
-| **Buildroot** | `2026.02.1` in [`scripts/configure.sh`](scripts/configure.sh) (`BUILDROOT_VER`) |
-| **Linux kernel** | `6.18.27` in [`tp2bmc/configs/tp2bmc_defconfig`](tp2bmc/configs/tp2bmc_defconfig) (`BR2_LINUX_KERNEL_CUSTOM_VERSION_VALUE`) |
-| **U-Boot** | Git commit `540468d5d61505b1f21e1fb753c55b81ea634b00` in [`tp2bmc/configs/tp2bmc_defconfig`](tp2bmc/configs/tp2bmc_defconfig) (`BR2_TARGET_UBOOT_CUSTOM_REPO_VERSION`) |
-| **bmcd** | `v2.3.4` in [`tp2bmc/package/bmcd/bmcd.mk`](tp2bmc/package/bmcd/bmcd.mk) (`BMCD_VERSION`) |
-| **BMC-UI** (static Web UI) | `v3.3.6` in [`tp2bmc/package/bmc-ui/bmc-ui.mk`](tp2bmc/package/bmc-ui/bmc-ui.mk) (`BMC_UI_VERSION`) |
-| **BMC-Installer** (recovery / SD init) | Git `eef33d0f72728831650ab4d04b5225993f002b31` in [`tp2bmc/package/bmc_installer/bmc_installer.mk`](tp2bmc/package/bmc_installer/bmc_installer.mk) |
-| **`tpi` CLI** | Git `f9a5d58f42428f861693bdeac5acc0171872d807` in [`tp2bmc/package/tpi/tpi.mk`](tp2bmc/package/tpi/tpi.mk) (`TPI_VERSION`) |
-| **Raspberry Pi `usbboot` helper** | `2021.07.01` in [`tp2bmc/package/raspberrypi-target-usbboot/raspberrypi-target-usbboot.mk`](tp2bmc/package/raspberrypi-target-usbboot/raspberrypi-target-usbboot.mk) |
-
-Other user-visible tools (**OpenSSH**, **Chrony**, **tcpdump**, **GNU screen**, **BusyBox**, **Avahi**, **mtd-utils**, **e2fsprogs**, etc.) are **not** re-versioned in this repo: their versions come from the **Buildroot release tarball** you unpack with `./scripts/configure.sh`. To see the exact upstream version Buildroot selected for, say, OpenSSH, open `buildroot/package/openssh/openssh.mk` in your Buildroot tree after unpacking, or inspect the matching directory under `output/build/` after a build (e.g. `openssh-9.x`).
-
-### Direct `BR2_PACKAGE_*` selections in `tp2bmc_defconfig`
-
-The file [`tp2bmc/configs/tp2bmc_defconfig`](tp2bmc/configs/tp2bmc_defconfig) lists every **explicit** `BR2_PACKAGE_*=y` option enabled for this product (Avahi, Bash, Chrony, Collectd, OpenSSH, **tcpdump**, **screen**, `ifupdown-ng`, `i2c-tools`, etc.). Anything pulled in only as a **dependency** of those packages will also appear under `output/build/` but may not have its own `BR2_PACKAGE_*=y` line.
-
-### Full listing (every Buildroot build directory)
-
-After a successful `./scripts/build.sh`:
-
-- **On the flashed BMC**, open  
-  **`/usr/share/doc/turing-pi-bmc/buildroot-output-build-dir-listing.txt`**  
-  (generated in [`tp2bmc/board/tp2bmc/post_build.sh`](tp2bmc/board/tp2bmc/post_build.sh)).  
-  That file is a sorted list of all `output/build/*` directory names from the machine that produced the image — the closest thing to an “all installed applications with versions” manifest without enabling extra Buildroot legal-info steps.
-
-- **On the build host**, the same list can be printed with:
-
-```shell
-./scripts/list-bmc-buildroot-package-dirs.sh
-# or, if your Buildroot output lives elsewhere:
-./scripts/list-bmc-buildroot-package-dirs.sh /path/to/buildroot/output
-```
-
-For a **license-oriented** CSV (slower, larger), from your Buildroot directory run `make legal-info` and inspect `output/legal-info/manifest.csv` (standard Buildroot; not wired into this repo by default).
 
 ## Install firmware
 
@@ -393,7 +350,255 @@ The build script also provides additional arguments.
 git build --help
 ```
 
-The .gitignore allows for two workign directories while developing.
+The .gitignore allows for two working directories while developing.
 
 - tmp
 - wip
+
+### BMC hardware overview
+
+Device trees live under [`tp2bmc/board/tp2bmc/`](tp2bmc/board/tp2bmc/): common
+[`sun8i-t113s-turing-pi2.dtsi`](tp2bmc/board/tp2bmc/sun8i-t113s-turing-pi2.dtsi);
+board variants
+[`sun8i-t113s-turing-pi2-v2.4.dts`](tp2bmc/board/tp2bmc/sun8i-t113s-turing-pi2-v2.4.dts),
+[`sun8i-t113s-turing-pi2-v2.5.dts`](tp2bmc/board/tp2bmc/sun8i-t113s-turing-pi2-v2.5.dts),
+[`sun8i-t113s-turing-pi2-v2.5.1.dts`](tp2bmc/board/tp2bmc/sun8i-t113s-turing-pi2-v2.5.1.dts).
+The FIT reuses the **v2.5.1** DTB for **v2.5.2** hardware ([`turing-pi2.its`](tp2bmc/board/tp2bmc/turing-pi2.its)).
+
+#### Block diagram
+
+```mermaid
+flowchart TB
+  subgraph soc[T113-S3]
+    GMAC["GMAC RMII PE0-PE9"]
+    SPI0["SPI0 NAND PC2-PC7"]
+    OTG["USB gadget usb_otg / usbphy"]
+    EHCI["USB host EHCI1 + hub"]
+    UART["UART1 PG6/7, UART2 PD1/2, UART3 PB6/7, UART4 PB2/3, UART5 PB4/5"]
+    MMC["mmc0 SD, CD PF6"]
+    FP["Front panel PG8-11, key1 PG15"]
+    NGPIO["turing,pi2-nodes + gpio-latch v2.5"]
+    PWM["pwm-fan PWM5 PD21 v2.5"]
+  end
+  subgraph i2c[i2c_bus2 bit-bang PE12 SCL PE13 SDA]
+    EEP["24LC02 0x50 NVMEM MAC"]
+    RTL["RTL8370MB 0x5c SMI / DSA"]
+    RTC["PCF8563 0x51 placement varies"]
+    EMC["EMC2301 0x2f optional v2.4 DT"]
+  end
+  PHY["RTL8201F RMII PHY"]
+  subgraph ports[RTL8370MB DSA labels]
+    P1["node1"]
+    P2["node2"]
+    P3["node3"]
+    P4["node4"]
+    PC["cpu → GMAC"]
+    G0["ge0"]
+    G1["ge1"]
+  end
+  NAND[("SPI NAND")]
+  MOD["Compute modules: Ethernet + USB"]
+  GMAC --> PHY
+  PHY --> RTL
+  soc --> i2c
+  SPI0 --> NAND
+  EHCI --> MOD
+  RTL --> P1
+  RTL --> P2
+  RTL --> P3
+  RTL --> P4
+  RTL --> PC
+  RTL --> G0
+  RTL --> G1
+  P1 --> MOD
+  P2 --> MOD
+  P3 --> MOD
+  P4 --> MOD
+```
+
+#### RTL8370MB DSA switch ports
+
+Port labels come from `ethernet_switch` / `ethernet-ports` in
+[`sun8i-t113s-turing-pi2.dtsi`](tp2bmc/board/tp2bmc/sun8i-t113s-turing-pi2.dtsi):
+
+| Label | Connection |
+|-------|----------------|
+| **node1** … **node4** | Internal PHY toward each compute slot’s **Ethernet** |
+| **cpu** | **DSA CPU port** to the SoC **`&emac`** (via **RTL8201F** RMII) |
+| **ge0**, **ge1** | **External RJ45** front-panel **Gigabit** ports |
+
+#### I²C / SMI (`i2c_bus2`)
+
+The Realtek switch uses **SMI-over-I²C** in a way the SoC **hardware TWI** cannot
+handle, so Linux uses **`i2c-gpio`** on **PE12 (SCL)** / **PE13 (SDA)** as
+`i2c_bus2`. That bus carries the **24LC02** at **0x50**, the **RTL8370MB**
+management interface at **0x5c**, and (per DT variant) **PCF8563** at **0x51**.
+
+**Fan control**
+
+- **v2.5.x** DT: **`pwm-fan`** on **PWM5 / PD21** ([`sun8i-t113s-turing-pi2-v2.5.dts`](tp2bmc/board/tp2bmc/sun8i-t113s-turing-pi2-v2.5.dts)); no EMC2301 node.
+- **v2.4** DT only: optional **EMC2301 @ 0x2f** on `i2c_bus2` for user-soldered fan
+  IC ([`sun8i-t113s-turing-pi2-v2.4.dts`](tp2bmc/board/tp2bmc/sun8i-t113s-turing-pi2-v2.4.dts)); no `pwm-fan` node.
+
+**RTC**
+
+- **v2.5.0**: **PCF8563 @ 0x51** on **`i2c0` PG12 / PG13**.
+- **v2.5.1+**: **`i2c0` disabled** for RTC; **PCF8563 @ 0x51** on **`i2c_bus2`**.
+
+**Node control / USB**
+
+GPIO tables document the **`turing,pi2-nodes`** controller in each DTB
+([`sun8i-t113s-turing-pi2-v2.4.dts`](tp2bmc/board/tp2bmc/sun8i-t113s-turing-pi2-v2.4.dts),
+[`sun8i-t113s-turing-pi2-v2.5.dts`](tp2bmc/board/tp2bmc/sun8i-t113s-turing-pi2-v2.5.dts)).
+**v2.5.x** adds **`gpio-latch`**: clock **PD20**, latched outputs **PD3–PD11**
+(index **0** = **PD3** … index **8** = **PD11**). `gpios = <&gpio_latch N …>`
+refers to **PD3+N**.
+
+**Other pins (`dtsi`)**
+
+- **Front panel**: LEDs **PG8 / PG9**, keys **PG10–PG11**, board key **PG15**.
+- **SD card**: **mmc0**, card-detect **PF6**.
+- **BMC console**: **`serial0` → `&uart3`** (UART table below).
+- **PHY reset**: **PE10** on `&mdio` `rtl8201f`.
+- **Switch reset**: **PG13** (v2.4) vs **PG3** (v2.5.x) on `&ethernet_switch`.
+- **RMII**: **PE0–PE9** `emac` — see **`rmii_pe_pins`** in the same
+  **`sun8i-t113s.dtsi`** as the UART mux (same kernel tree as the **Versions defined** table below).
+
+##### UART pins (`serialN` aliases)
+
+Mux lives in **`arch/arm/boot/dts/allwinner/sun8i-t113s.dtsi`** for the **pinned
+kernel** ([Versions defined in this repository](#versions-defined-in-this-repository)).
+Use a checkout under **`tmp/`** or **`output/build/linux-<version>/`** and grep
+for `uart*_…_pins`. Enabled in
+[`sun8i-t113s-turing-pi2.dtsi`](tp2bmc/board/tp2bmc/sun8i-t113s-turing-pi2.dtsi).
+
+| Alias | Controller | Pinctrl node | Pins (TX, RX) |
+|-------|------------|--------------|---------------|
+| `serial0` | **UART3** | `uart3_pb_pins` | **PB6**, **PB7** |
+| `serial1` | **UART2** | `uart2_pd_pins` (board `dtsi`) | **PD1**, **PD2** |
+| `serial2` | **UART1** | `uart1_pg6_pins` | **PG6**, **PG7** |
+| `serial3` | **UART4** | `uart4_pb_pins` (board `dtsi`) | **PB2**, **PB3** |
+| `serial4` | **UART5** | `uart5_pb_pins` (board `dtsi`) | **PB4**, **PB5** |
+
+`serial0` is **115200 8N1** (`stdout-path`). Pinctrl lists **TX then RX**.
+
+##### Node GPIO lines (`gpio-line-names`)
+
+**PCB v2.4**
+
+| GPIO name | Pin | Notes |
+|-----------|-----|--------|
+| `node1-en` | **PD11** | active low |
+| `node1-rst` | **PD0** | active low |
+| `node1-usbotg-dev` | **PD19** | active high |
+| `node1-rpiboot` | **PD15** | active low |
+| `node2-en` | **PD10** | active low |
+| `node2-rst` | **PD20** | active low |
+| `node2-usbotg-dev` | **PD18** | active high |
+| `node2-rpiboot` | **PD14** | active low |
+| `node3-en` | **PD9** | active low |
+| `node3-rst` | **PD21** | active low |
+| `node3-usbotg-dev` | **PD17** | active high |
+| `node3-rpiboot` | **PD12** | active low |
+| `node4-en` | **PD8** | active low |
+| `node4-rst` | **PD22** | active low |
+| `node4-usbotg-dev` | **PD16** | active high |
+| `node4-rpiboot` | **PD13** | active low |
+
+**PCB v2.5.x** — no `node*-rst`; only **`node1-usbotg-dev`** besides **en** /
+**rpiboot**.
+
+| GPIO name | Pin | Notes |
+|-----------|-----|--------|
+| `node1-en` | **PD11** | `gpio_latch` index **8**, active low |
+| `node1-usbotg-dev` | **PD19** | direct SoC |
+| `node1-rpiboot` | **PD15** | direct SoC |
+| `node2-en` | **PD10** | latch index **7** |
+| `node2-rpiboot` | **PD14** | direct SoC |
+| `node3-en` | **PD9** | latch index **6** |
+| `node3-rpiboot` | **PD12** | direct SoC |
+| `node4-en` | **PD8** | latch index **5** |
+| `node4-rpiboot` | **PD13** | direct SoC |
+
+**USB (v2.5+ DT):** **`&ehci1`** → `hub@1` → **`node1@1` … `node4@4`**; sysfs
+**`1-1.N`** paths for MSD symlinks.
+
+##### Node slot 5 V enables (regulator `gpio`)
+
+| Function | v2.4 | v2.5.0 | v2.5.1+ |
+|----------|------|--------|---------|
+| ATX 12 V | **PD3** | latch **0** → **PD3** | same |
+| Slot 1 | **PD7** | latch **4** → **PD7** | same |
+| Slot 2 | **PD6** | latch **2** → **PD5** | latch **3** → **PD6** |
+| Slot 3 | **PD5** | latch **3** → **PD6** | latch **2** → **PD5** |
+| Slot 4 | **PD4** | latch **1** → **PD4** | same |
+
+##### USB hub / BMC OTG supply (DT)
+
+| Topic | v2.4 | v2.5 / v2.5.1+ |
+|-------|------|----------------|
+| Hub port VBUS | **PG4** `reg_usb_port_vbus` | not in board DTS |
+| Gadget VBUS | **PG12** → `usb0_vbus-supply` on **`&usbphy`** | no `usb0_vbus-supply` in shared `dtsi` |
+| **`&usb_otg`** | **otg** + role switch | **`peripheral`** ([`sun8i-t113s-turing-pi2.dtsi`](tp2bmc/board/tp2bmc/sun8i-t113s-turing-pi2.dtsi)) |
+
+**EHCI** to modules is separate from **`&usb_otg` / `usbphy`**.
+
+##### Board EEPROM (24LC02 @ 0x50)
+
+Read-only in Linux. Layout / burn: [`tp2bmc/board/tp2bmc/uboot.env`](tp2bmc/board/tp2bmc/uboot.env).
+
+| Offset | Length | Content |
+|--------|--------|---------|
+| 0x00–0x01 | 2 B | Erased `0xFFFF` before re-burn |
+| 0x02–0x05 | 4 B | CRC32 over **0x06–0x1F** |
+| 0x06–0x07 | 2 B | Header magic |
+| 0x08–0x09 | 2 B | **`eeprom_ver`** (e.g. `0x1100` v2.4.0, `0x1140` v2.5.0, `0x1141` v2.5.1, `0x1142` v2.5.2) |
+| 0x2C–0x31 | 6 B | **MAC** → `dwmac-sun8i` NVMEM |
+| remainder | — | reserved |
+
+U-Boot picks the **FIT config** from **`eeprom_ver`** ([`turing-pi2.its`](tp2bmc/board/tp2bmc/turing-pi2.its)); corrupt EEPROM can load the wrong DTB.
+
+### BMC rootfs software inventory
+
+The BMC image is a **Buildroot** rootfs plus this repo’s **`BR2_EXTERNAL`** (`tp2bmc/`). There are two useful views of “what is installed”:
+
+1. **Versions pinned in *this* repository** — kernel, bootloader, and Turing Pi–owned packages. These are the values you can audit without running a build.
+2. **Everything Buildroot actually compiled into the rootfs** — hundreds of packages and dependencies. The authoritative names and upstream versions appear as **directory names** under Buildroot’s `output/build/` (convention: `<name>-<version>`).
+
+#### Versions defined in this repository
+
+| Component | Where the version is pinned |
+|-----------|-------------------------------|
+| **Buildroot** | `2026.02.1` in [`scripts/configure.sh`](scripts/configure.sh) (`BUILDROOT_VER`) |
+| **Linux kernel** | `6.18.27` in [`tp2bmc/configs/tp2bmc_defconfig`](tp2bmc/configs/tp2bmc_defconfig) (`BR2_LINUX_KERNEL_CUSTOM_VERSION_VALUE`) |
+| **U-Boot** | Git commit `540468d5d61505b1f21e1fb753c55b81ea634b00` in [`tp2bmc/configs/tp2bmc_defconfig`](tp2bmc/configs/tp2bmc_defconfig) (`BR2_TARGET_UBOOT_CUSTOM_REPO_VERSION`) |
+| **bmcd** | `v2.3.4` in [`tp2bmc/package/bmcd/bmcd.mk`](tp2bmc/package/bmcd/bmcd.mk) (`BMCD_VERSION`) |
+| **BMC-UI** (static Web UI) | `v3.3.6` in [`tp2bmc/package/bmc-ui/bmc-ui.mk`](tp2bmc/package/bmc-ui/bmc-ui.mk) (`BMC_UI_VERSION`) |
+| **BMC-Installer** (recovery / SD init) | Git `eef33d0f72728831650ab4d04b5225993f002b31` in [`tp2bmc/package/bmc_installer/bmc_installer.mk`](tp2bmc/package/bmc_installer/bmc_installer.mk) |
+| **`tpi` CLI** | Git `f9a5d58f42428f861693bdeac5acc0171872d807` in [`tp2bmc/package/tpi/tpi.mk`](tp2bmc/package/tpi/tpi.mk) (`TPI_VERSION`) |
+| **Raspberry Pi `usbboot` helper** | `2021.07.01` in [`tp2bmc/package/raspberrypi-target-usbboot/raspberrypi-target-usbboot.mk`](tp2bmc/package/raspberrypi-target-usbboot/raspberrypi-target-usbboot.mk) |
+
+Other user-visible tools (**OpenSSH**, **Chrony**, **tcpdump**, **GNU screen**, **BusyBox**, **Avahi**, **mtd-utils**, **e2fsprogs**, etc.) are **not** re-versioned in this repo: their versions come from the **Buildroot release tarball** you unpack with `./scripts/configure.sh`. To see the exact upstream version Buildroot selected for, say, OpenSSH, open `buildroot/package/openssh/openssh.mk` in your Buildroot tree after unpacking, or inspect the matching directory under `output/build/` after a build (e.g. `openssh-9.x`).
+
+#### Direct `BR2_PACKAGE_*` selections in `tp2bmc_defconfig`
+
+The file [`tp2bmc/configs/tp2bmc_defconfig`](tp2bmc/configs/tp2bmc_defconfig) lists every **explicit** `BR2_PACKAGE_*=y` option enabled for this product (Avahi, Bash, Chrony, Collectd, OpenSSH, **tcpdump**, **screen**, `ifupdown-ng`, `i2c-tools`, etc.). Anything pulled in only as a **dependency** of those packages will also appear under `output/build/` but may not have its own `BR2_PACKAGE_*=y` line.
+
+#### Full listing (every Buildroot build directory)
+
+After a successful `./scripts/build.sh`:
+
+- **On the flashed BMC**, open  
+  **`/usr/share/doc/turing-pi-bmc/buildroot-output-build-dir-listing.txt`**  
+  (generated in [`tp2bmc/board/tp2bmc/post_build.sh`](tp2bmc/board/tp2bmc/post_build.sh)).  
+  That file is a sorted list of all `output/build/*` directory names from the machine that produced the image — the closest thing to an “all installed applications with versions” manifest without enabling extra Buildroot legal-info steps.
+
+- **On the build host**, the same list can be printed with:
+
+```shell
+./scripts/list-bmc-buildroot-package-dirs.sh
+# or, if your Buildroot output lives elsewhere:
+./scripts/list-bmc-buildroot-package-dirs.sh /path/to/buildroot/output
+```
+
+For a **license-oriented** CSV (slower, larger), from your Buildroot directory run `make legal-info` and inspect `output/legal-info/manifest.csv` (standard Buildroot; not wired into this repo by default).
