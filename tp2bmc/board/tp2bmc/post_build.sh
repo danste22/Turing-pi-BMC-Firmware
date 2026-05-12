@@ -38,3 +38,10 @@ else
 	echo "No build/ directory beside TARGET_DIR (${outdir}); BOM listing skipped." \
 		> "${docdir}/buildroot-output-build-dir-listing.txt"
 fi
+
+# #225: append mdev hook for stable /dev/disk/by-tpi/nodeN (UMS on 1-1.N only).
+marker="mdev-tpi-msd-symlink"
+mconf="${TARGET_DIR}/etc/mdev.conf"
+if [ -f "${mconf}" ] && ! grep -qF "${marker}" "${mconf}"; then
+	printf '\n# %s (#225)\nsd[a-z] root:disk 660 @/usr/bin/%s\n' "${marker}" "${marker}" >>"${mconf}"
+fi
