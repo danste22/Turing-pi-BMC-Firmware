@@ -54,6 +54,51 @@ visibility reasons, we will mainly use the issue tracker of this repository.
 - Ethernet PHYceiver (RTL8201F-VB-CG)
 - SD card slot
 
+## BMC rootfs software inventory
+
+The BMC image is a **Buildroot** rootfs plus this repo’s **`BR2_EXTERNAL`** (`tp2bmc/`). There are two useful views of “what is installed”:
+
+1. **Versions pinned in *this* repository** — kernel, bootloader, and Turing Pi–owned packages. These are the values you can audit without running a build.
+2. **Everything Buildroot actually compiled into the rootfs** — hundreds of packages and dependencies. The authoritative names and upstream versions appear as **directory names** under Buildroot’s `output/build/` (convention: `<name>-<version>`).
+
+### Versions defined in this repository
+
+| Component | Where the version is pinned |
+|-----------|-------------------------------|
+| **Buildroot** | `2026.02.1` in [`scripts/configure.sh`](scripts/configure.sh) (`BUILDROOT_VER`) |
+| **Linux kernel** | `6.18.27` in [`tp2bmc/configs/tp2bmc_defconfig`](tp2bmc/configs/tp2bmc_defconfig) (`BR2_LINUX_KERNEL_CUSTOM_VERSION_VALUE`) |
+| **U-Boot** | Git commit `540468d5d61505b1f21e1fb753c55b81ea634b00` in [`tp2bmc/configs/tp2bmc_defconfig`](tp2bmc/configs/tp2bmc_defconfig) (`BR2_TARGET_UBOOT_CUSTOM_REPO_VERSION`) |
+| **bmcd** | `v2.3.4` in [`tp2bmc/package/bmcd/bmcd.mk`](tp2bmc/package/bmcd/bmcd.mk) (`BMCD_VERSION`) |
+| **BMC-UI** (static Web UI) | `v3.3.6` in [`tp2bmc/package/bmc-ui/bmc-ui.mk`](tp2bmc/package/bmc-ui/bmc-ui.mk) (`BMC_UI_VERSION`) |
+| **BMC-Installer** (recovery / SD init) | Git `eef33d0f72728831650ab4d04b5225993f002b31` in [`tp2bmc/package/bmc_installer/bmc_installer.mk`](tp2bmc/package/bmc_installer/bmc_installer.mk) |
+| **`tpi` CLI** | Git `f9a5d58f42428f861693bdeac5acc0171872d807` in [`tp2bmc/package/tpi/tpi.mk`](tp2bmc/package/tpi/tpi.mk) (`TPI_VERSION`) |
+| **Raspberry Pi `usbboot` helper** | `2021.07.01` in [`tp2bmc/package/raspberrypi-target-usbboot/raspberrypi-target-usbboot.mk`](tp2bmc/package/raspberrypi-target-usbboot/raspberrypi-target-usbboot.mk) |
+
+Other user-visible tools (**OpenSSH**, **Chrony**, **tcpdump**, **GNU screen**, **BusyBox**, **Avahi**, **mtd-utils**, **e2fsprogs**, etc.) are **not** re-versioned in this repo: their versions come from the **Buildroot release tarball** you unpack with `./scripts/configure.sh`. To see the exact upstream version Buildroot selected for, say, OpenSSH, open `buildroot/package/openssh/openssh.mk` in your Buildroot tree after unpacking, or inspect the matching directory under `output/build/` after a build (e.g. `openssh-9.x`).
+
+### Direct `BR2_PACKAGE_*` selections in `tp2bmc_defconfig`
+
+The file [`tp2bmc/configs/tp2bmc_defconfig`](tp2bmc/configs/tp2bmc_defconfig) lists every **explicit** `BR2_PACKAGE_*=y` option enabled for this product (Avahi, Bash, Chrony, Collectd, OpenSSH, **tcpdump**, **screen**, `ifupdown-ng`, `i2c-tools`, etc.). Anything pulled in only as a **dependency** of those packages will also appear under `output/build/` but may not have its own `BR2_PACKAGE_*=y` line.
+
+### Full listing (every Buildroot build directory)
+
+After a successful `./scripts/build.sh`:
+
+- **On the flashed BMC**, open  
+  **`/usr/share/doc/turing-pi-bmc/buildroot-output-build-dir-listing.txt`**  
+  (generated in [`tp2bmc/board/tp2bmc/post_build.sh`](tp2bmc/board/tp2bmc/post_build.sh)).  
+  That file is a sorted list of all `output/build/*` directory names from the machine that produced the image — the closest thing to an “all installed applications with versions” manifest without enabling extra Buildroot legal-info steps.
+
+- **On the build host**, the same list can be printed with:
+
+```shell
+./scripts/list-bmc-buildroot-package-dirs.sh
+# or, if your Buildroot output lives elsewhere:
+./scripts/list-bmc-buildroot-package-dirs.sh /path/to/buildroot/output
+```
+
+For a **license-oriented** CSV (slower, larger), from your Buildroot directory run `make legal-info` and inspect `output/legal-info/manifest.csv` (standard Buildroot; not wired into this repo by default).
+
 ## Install firmware
 
 >**Note: If you are running a firmware version lower than < v2.0.0, you must do
