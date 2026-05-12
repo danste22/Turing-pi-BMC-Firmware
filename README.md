@@ -99,20 +99,6 @@ After a successful `./scripts/build.sh`:
 
 For a **license-oriented** CSV (slower, larger), from your Buildroot directory run `make legal-info` and inspect `output/legal-info/manifest.csv` (standard Buildroot; not wired into this repo by default).
 
-## Node MSD and stable block devices ([#225](https://github.com/turing-machines/BMC-Firmware/issues/225))
-
-When a compute module exposes its storage as USB mass storage to the BMC (`tpi advanced msd --node N`), Linux assigns **`/dev/sda`**, **`/dev/sdb`**, … in **discovery order**. That order changes across attach/detach cycles, so **automation must not hard-code `sdX`**.
-
-**Practical fix (firmware repo):** add **`udev`** rules under `tp2bmc/board/tp2bmc/overlay/etc/udev/rules.d/` that create stable symlinks (e.g. **`/dev/disk/by-tpi/node1`**) keyed off **stable sysfs/USB attributes** (`ID_PATH`, `DEVPATH`, `KERNELS` chain, etc.). Those attributes are **board-revision specific** — capture them once per node on real hardware.
-
-**On a running BMC** (e.g. **v2.5.2**), with **only one** node in MSD mode, identify the new block device (`lsblk`), then run:
-
-```shell
-/usr/bin/tpi-msd-udev-snapshot.sh /dev/sdX   # replace X with the letter you see
-```
-
-Inspect **`/tmp/msd-udev-sdX.txt`** (and the filtered property lines printed to the terminal). Repeat for each slot so rules can map **topology → node index**. Having **`tpi`/`bmcd` print the chosen device** after `msd` is a separate improvement in the **`bmcd`** / **`tpi`** repositories.
-
 ## Install firmware
 
 >**Note: If you are running a firmware version lower than < v2.0.0, you must do
