@@ -48,7 +48,7 @@ visibility reasons, we will mainly use the issue tracker of this repository.
 
 - CPU Allwinner T113-S3 (ARM Cortex-A7)
 - 128 MB DDR3 RAM
-- 128 MB SPI NAND flash (MX35LF1GE4AB)
+- SPI NAND flash — **128 MB** (Macronix MX35LF1GE4AB) on V2.3 / V2.4 boards; **256 MB** (Macronix MX35LF2GE4AD) on V2.5.2 boards
 - EEPROM (24C02C)
 - 3 port Gigabit Ethernet Switch (RTL8370MB)
 - Ethernet PHYceiver (RTL8201F-VB-CG)
@@ -301,7 +301,7 @@ sudo apt-get -y install \
   build-essential subversion git-core \
   libncurses5-dev zlib1g-dev gawk flex quilt libssl-dev xsltproc \
   libxml-parser-perl mercurial bzr ecj cvs unzip zlib1g-dev \
-  libstdc++6 libncurses-dev u-boot-tools mkbootimg
+  libstdc++6 libncurses-dev u-boot-tools mkbootimg tcpdump screen
 
 # prepare buildroot
 ./scripts/configure.sh
@@ -309,6 +309,8 @@ sudo apt-get -y install \
 # build
 ./scripts/build.sh
 ```
+
+The default **`tp2bmc_defconfig`** rootfs also includes **tcpdump** and **GNU screen** on the BMC (issues [#180](https://github.com/turing-machines/BMC-Firmware/issues/180) and [#248](https://github.com/turing-machines/BMC-Firmware/issues/248)).
 
 ## Output
 
