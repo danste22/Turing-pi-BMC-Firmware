@@ -301,7 +301,7 @@ sudo apt-get -y install \
   build-essential subversion git-core \
   libncurses5-dev zlib1g-dev gawk flex quilt libssl-dev xsltproc \
   libxml-parser-perl mercurial bzr ecj cvs unzip zlib1g-dev \
-  libstdc++6 libncurses-dev u-boot-tools mkbootimg tcpdump screen
+  libstdc++6 libncurses-dev u-boot-tools mkbootimg
 
 # prepare buildroot
 ./scripts/configure.sh
@@ -309,8 +309,6 @@ sudo apt-get -y install \
 # build
 ./scripts/build.sh
 ```
-
-The default **`tp2bmc_defconfig`** rootfs also includes **tcpdump** and **GNU screen** on the BMC (issues [#180](https://github.com/turing-machines/BMC-Firmware/issues/180) and [#248](https://github.com/turing-machines/BMC-Firmware/issues/248)).
 
 ## Output
 
