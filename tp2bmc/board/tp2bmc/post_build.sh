@@ -17,3 +17,24 @@ if [ -e ${TARGET_DIR}/etc/inittab ]; then
     sed -i '/GENERIC_SERIAL/a\
 GS0::respawn:/sbin/getty -L ttyGS0 115200 vt100 # BMC-USB-OTG' ${TARGET_DIR}/etc/inittab
 fi
+
+# Bill of materials helper: every per-package build directory under output/build/
+# (names are usually <pkg>-<upstream-version>). Present on the flashed BMC at:
+#   /usr/share/doc/turing-pi-bmc/buildroot-output-build-dir-listing.txt
+docdir="${TARGET_DIR}/usr/share/doc/turing-pi-bmc"
+mkdir -p "${docdir}"
+outdir=$(dirname "${TARGET_DIR}")
+if [[ -d "${outdir}/build" ]]; then
+	{
+		echo "Turing Pi BMC — Buildroot output/build directory listing"
+		echo "One line per directory under the Buildroot output build tree."
+		echo "Typical pattern: <package-name>-<upstream-version> (see Buildroot manual)."
+		echo "host-* entries are host tools; most other lines are target rootfs inputs."
+		echo "Generated at rootfs image assembly."
+		echo ""
+		ls -1 "${outdir}/build" | LC_ALL=C sort -f
+	} > "${docdir}/buildroot-output-build-dir-listing.txt"
+else
+	echo "No build/ directory beside TARGET_DIR (${outdir}); BOM listing skipped." \
+		> "${docdir}/buildroot-output-build-dir-listing.txt"
+fi
