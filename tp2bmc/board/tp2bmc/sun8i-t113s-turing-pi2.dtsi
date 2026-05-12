@@ -414,3 +414,39 @@ i2c_bus2: i2c-bitbang {
 &wdt {
 	status = "okay";
 };
+
+/*
+ * No panel or HDMI on this BMC; disable the DE2 pipeline so probe
+ * skips unused display blocks and boot logs lose the DE "Fixed
+ * dependency cycle(s)" noise.  Omitted for U-Boot because its DTS
+ * include may not expose the same labels as Linux.
+ */
+#ifndef IS_UBOOT
+&de {
+	status = "disabled";
+};
+
+&mixer0 {
+	status = "disabled";
+};
+
+&mixer1 {
+	status = "disabled";
+};
+
+&tcon_top {
+	status = "disabled";
+};
+
+&tcon_lcd0 {
+	status = "disabled";
+};
+
+&tcon_tv0 {
+	status = "disabled";
+};
+
+&dsi {
+	status = "disabled";
+};
+#endif
