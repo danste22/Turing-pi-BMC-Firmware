@@ -1,1 +1,1 @@
-exec picocom /dev/ttyS2 -b 115200
+exec screen /dev/ttyS2 115200

@@ -482,6 +482,10 @@ for `uart*_…_pins`. Enabled in
 
 `serial0` is **115200 8N1** (`stdout-path`). Pinctrl lists **TX then RX**.
 
+**Node serial helpers:** [`overlay/usr/bin/node1` … `node4`](tp2bmc/board/tp2bmc/overlay/usr/bin/) run **GNU `screen`** on `ttyS1`–`ttyS4` at **115200** (`screen /dev/ttyS* 115200`). Exit with **Ctrl-A**, then **\\** (quit) or **k** (kill); **Ctrl-A** **d** detaches. **BusyBox `microcom`** is not used for node consoles: without **`-X`** output is garbled on binary-heavy RK UART traffic; with **`-X`** there is no clean exit (Ctrl-X is disabled). If **`bmcd`** holds the UART, stop it before attaching (see [`docs/node1-rk1-bmc-debug.md`](docs/node1-rk1-bmc-debug.md)).
+
+**Netconsole (#180):** Linux ships **`CONFIG_NETCONSOLE`** with **dynamic** targets — the log collector address is **not** fixed at compile time. After boot, use **configfs** under `/sys/kernel/config/netconsole/` (create a target, set `remote_ip`, `remote_port`, `dev_name` e.g. `br0`, then `enabled=1`), or pass a one-shot **`netconsole=…`** string on the kernel cmdline. On a host: `nc -u -l -p 6666`. Details: `Documentation/networking/netconsole.rst` in the kernel tree.
+
 ##### Node GPIO lines (`gpio-line-names`)
 
 **PCB v2.4**
@@ -520,8 +524,7 @@ for `uart*_…_pins`. Enabled in
 | `node4-en` | **PD8** | latch index **5** |
 | `node4-rpiboot` | **PD13** | direct SoC |
 
-**USB (v2.5+ DT):** **`&ehci1`** → `hub@1` → **`node1@1` … `node4@4`**; sysfs
-**`1-1.N`** paths for MSD symlinks.
+**USB (v2.5+ DT):** **`&ehci1`** → `hub@1` → **`node1@1` … `node4@4`**; sysfs paths for MSD are typically **`…/usb2/2-1/2-1.N/…`** on **EHCI** (and may be **`…/usb1/1-1/1-1.N/…`** on other roots) — **`mdev-tpi-msd-symlink`** accepts **both** patterns for **`/dev/disk/by-tpi/nodeN`**.
 
 ##### Node slot 5 V enables (regulator `gpio`)
 
