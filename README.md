@@ -76,10 +76,16 @@ you can find more information on installing firmware.
 If you want to build the BMC firmware yourself, there is some preparation
 needed, which depends on your working environment.
 
-The build process uses [Buildroot](https://buildroot.org/) for further documentation
-can be found [here](https://buildroot.org/downloads/manual/manual.html).
-Buildroot is not included in this repository and needs to be downloaded once
-before building.
+The build process uses [Buildroot](https://buildroot.org/) **2026.02.1** (see
+[`scripts/configure.sh`](scripts/configure.sh)); further documentation can be found
+[here](https://buildroot.org/downloads/manual/manual.html). Buildroot is not
+included in this repository and needs to be downloaded once before building.
+
+The **`feat/buildroot-2026.02`** line completes the platform upgrade
+([#235](https://github.com/turing-machines/BMC-Firmware/issues/235)): **Buildroot
+2024.05.1 → 2026.02.1**, **Linux 6.8.12 → 6.18.27**, refreshed Realtek DSA patches,
+and updated `BR2_EXTERNAL` packages. Package-level deltas from the old baseline are
+summarized in [`version.info`](version.info).
 
 This repository uses a `devcontainer` for a uniform development environment. The
 devcontainer is available in a linux and darwin version. Windows users are recommended
@@ -427,6 +433,62 @@ Port labels come from `ethernet_switch` / `ethernet-ports` in
 | **cpu** | **DSA CPU port** to the SoC **`&emac`** (via **RTL8201F** RMII) |
 | **ge0**, **ge1** | **External RJ45** front-panel **Gigabit** ports |
 
+#### Advanced switching (shell cookbook)
+
+The shipped image attaches **node1…node4**, **ge0**, and **ge1** to **`br0`**
+([`overlay/etc/network/interfaces`](tp2bmc/board/tp2bmc/overlay/etc/network/interfaces)).
+The kernel enables **bridge VLAN filtering**, **802.1Q**, and **software bonding**;
+**bridge offload** forwards among `br0` members in hardware where the driver supports
+it. **Switch-ASIC VLAN table programming** and **LAG/trunk offload** are **parked**
+on this firmware line — use the commands below for **software** VLAN/bond experiments
+only, not as a substitute for future product UI work.
+
+Tools: **`ip`** and **`bridge`** from **iproute2** (`BR2_PACKAGE_IPROUTE2`). Not
+available through the Web UI — lab / SSH use only. Changing bridges or bonds **will
+disrupt** the default `br0` uplink until you restore [`interfaces`](tp2bmc/board/tp2bmc/overlay/etc/network/interfaces) or reboot.
+
+**Inspect topology**
+
+```sh
+ip -br link
+bridge link
+bridge vlan show dev br0
+cat /sys/class/net/br0/bridge/vlan_filtering   # expect 1
+```
+
+**VLAN-aware bridge (example)** — isolate a test VID on one node port:
+
+```sh
+# Example: PVID 100 untagged on node2 only; other ports unchanged until you add rules.
+bridge vlan add dev node2 vid 100 pvid untagged
+bridge vlan show dev br0
+# Revert:
+bridge vlan del dev node2 vid 100
+```
+
+**Software LACP bond (example)** — only after removing **ge0** / **ge1** from `br0`
+(or on a bench unit). Requires `CONFIG_BONDING=y` (enabled in
+[`linux_defconfig`](tp2bmc/board/tp2bmc/linux_defconfig)).
+
+```sh
+ip link set ge0 down
+ip link set ge1 down
+ip link add bond0 type bond mode 802.3ad miimon 100
+ip link set ge0 master bond0
+ip link set ge1 master bond0
+ip link set bond0 up
+ip link set ge0 up
+ip link set ge1 up
+cat /proc/net/bonding/bond0
+# Teardown: ip link set ge0 nomaster; ip link set ge1 nomaster; ip link del bond0
+```
+
+**Packet capture** — use **`tcpdump -i br0`**, **`tcpdump -i ge0`**, or
+**`tcpdump -i nodeN`**, not the abstract **`dsa`** master (Buildroot **libpcap 1.10.5**
+does not support the **`rtl8_4`** DSA tag on the CPU conduit).
+
+Further kernel/DSA context: [`tp2bmc/patches/linux/KERNEL_UPGRADE_LOG.md`](tp2bmc/patches/linux/KERNEL_UPGRADE_LOG.md) (when tracked in git).
+
 #### I²C / SMI (`i2c_bus2`)
 
 The Realtek switch uses **SMI-over-I²C** in a way the SoC **hardware TWI** cannot
@@ -570,10 +632,15 @@ The BMC image is a **Buildroot** rootfs plus this repo’s **`BR2_EXTERNAL`** (`
 
 #### Versions defined in this repository
 
+**Platform baseline:** production images before the **2026.02** upgrade used **Buildroot
+2024.05.1** and **Linux 6.8.12**. The current branch targets **Buildroot 2026.02.1** and
+**Linux 6.18.27** ([#235](https://github.com/turing-machines/BMC-Firmware/issues/235)
+firmware-complete on this line).
+
 | Component | Where the version is pinned |
 |-----------|-------------------------------|
-| **Buildroot** | `2026.02.1` in [`scripts/configure.sh`](scripts/configure.sh) (`BUILDROOT_VER`) |
-| **Linux kernel** | `6.18.27` in [`tp2bmc/configs/tp2bmc_defconfig`](tp2bmc/configs/tp2bmc_defconfig) (`BR2_LINUX_KERNEL_CUSTOM_VERSION_VALUE`) |
+| **Buildroot** | **`2026.02.1`** in [`scripts/configure.sh`](scripts/configure.sh) (`BUILDROOT_VER`) |
+| **Linux kernel** | **`6.18.27`** in [`tp2bmc/configs/tp2bmc_defconfig`](tp2bmc/configs/tp2bmc_defconfig) (`BR2_LINUX_KERNEL_CUSTOM_VERSION_VALUE`) |
 | **U-Boot** | Git commit `540468d5d61505b1f21e1fb753c55b81ea634b00` in [`tp2bmc/configs/tp2bmc_defconfig`](tp2bmc/configs/tp2bmc_defconfig) (`BR2_TARGET_UBOOT_CUSTOM_REPO_VERSION`) |
 | **bmcd** | `v2.3.4` in [`tp2bmc/package/bmcd/bmcd.mk`](tp2bmc/package/bmcd/bmcd.mk) (`BMCD_VERSION`) |
 | **BMC-UI** (static Web UI) | `v3.3.6` in [`tp2bmc/package/bmc-ui/bmc-ui.mk`](tp2bmc/package/bmc-ui/bmc-ui.mk) (`BMC_UI_VERSION`) |
