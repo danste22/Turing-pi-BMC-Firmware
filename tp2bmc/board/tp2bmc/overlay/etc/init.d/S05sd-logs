@@ -1,0 +1,33 @@
+#!/bin/sh
+# Optional persistent logs on SD partition labeled bmc-logs (see genimage.cfg).
+# Skip if no card, no partition, or /etc/bmc/disable-sd-logs exists.
+
+LOG_LABEL=bmc-logs
+LOG_MP=/mnt/bmc-logs
+
+case "$1" in
+start)
+	[ -f /etc/bmc/disable-sd-logs ] && exit 0
+	mkdir -p "$LOG_MP" /etc/bmc
+	DEV=$(blkid -o device -t PARTLABEL="$LOG_LABEL" 2>/dev/null) || exit 0
+	[ -n "$DEV" ] || exit 0
+	mount -t ext4 -o noatime "$DEV" "$LOG_MP" 2>/dev/null || exit 0
+	mkdir -p "$LOG_MP"/persisted
+	# Use SD only for extra retention; keep overlay /var/log if mount fails.
+	if [ -d /var/log ] && ! mountpoint -q /var/log 2>/dev/null; then
+		for f in messages secure cron; do
+			[ -f /var/log/$f ] && cp -a /var/log/$f "$LOG_MP/persisted/" 2>/dev/null || true
+		done
+		mount --bind "$LOG_MP/persisted" /var/log
+	fi
+	;;
+stop)
+	if mountpoint -q /var/log 2>/dev/null; then
+		umount /var/log 2>/dev/null || true
+	fi
+	umount "$LOG_MP" 2>/dev/null || true
+	;;
+*)
+	exit 1
+	;;
+esac

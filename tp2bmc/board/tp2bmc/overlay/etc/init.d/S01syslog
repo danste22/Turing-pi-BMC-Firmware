@@ -1,0 +1,26 @@
+#!/bin/sh
+# BusyBox syslogd + klogd. Remote collector: set SYSLOG_REMOTE in /etc/bmc/syslog-remote
+# (see syslog-remote.example). Uses -L so local /var/log/messages is kept.
+
+case "$1" in
+start)
+	SYSLOG_REMOTE=
+	[ -f /etc/bmc/syslog-remote ] && . /etc/bmc/syslog-remote
+	if [ -n "$SYSLOG_REMOTE" ]; then
+		syslogd -m 0 -L -R "$SYSLOG_REMOTE"
+	else
+		syslogd -m 0
+	fi
+	klogd
+	;;
+stop)
+	killall syslogd klogd 2>/dev/null || true
+	;;
+restart)
+	$0 stop
+	$0 start
+	;;
+*)
+	exit 1
+	;;
+esac

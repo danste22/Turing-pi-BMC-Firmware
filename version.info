@@ -14,7 +14,7 @@ wrappers) are not governed by these upstream versions.
 
 Image deltas not shown as version bumps: BR2_PACKAGE_PICOCOM removed
 (node serial uses GNU screen); BR2_PACKAGE_F2FS_TOOLS removed with kernel
-exFAT/F2FS options (see KERNEL_UPGRADE_LOG boot-log hygiene).
+exFAT/F2FS options (local kernel upgrade notes; not in public tree).
 
 
 1. Packages with unchanged versions
