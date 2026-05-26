@@ -487,7 +487,7 @@ cat /proc/net/bonding/bond0
 **`tcpdump -i nodeN`**, not the abstract **`dsa`** master (Buildroot **libpcap 1.10.5**
 does not support the **`rtl8_4`** DSA tag on the CPU conduit).
 
-Further kernel/DSA context: [`tp2bmc/patches/linux/KERNEL_UPGRADE_LOG.md`](tp2bmc/patches/linux/KERNEL_UPGRADE_LOG.md) (when tracked in git).
+Kernel/DSA patch series live under [`tp2bmc/patches/linux/`](tp2bmc/patches/linux/); maintainer-only upgrade notes are **not** in the public tree.
 
 #### I²C / SMI (`i2c_bus2`)
 
@@ -526,6 +526,16 @@ refers to **PD3+N**.
 - **RMII**: **PE0–PE9** `emac` — see **`rmii_pe_pins`** in the same
   **`sun8i-t113s.dtsi`** as the UART mux (same kernel tree as the **Versions defined** table below).
 
+**SD card image layout** (`tp2-bmc-firmware-sdcard.img` from [`genimage.cfg`](tp2bmc/board/tp2bmc/genimage.cfg)):
+
+| Partition | Role |
+|-----------|------|
+| **boot** (FAT) | Installer / recovery payload (also mounted at `/mnt/sdcard` when present) |
+| **rootfs** | EROFS in a **45880K** partition (370 LEBs of NAND — see `genimage.cfg`) |
+| **bmc-logs** (ext4, optional) | Extra **128 MiB** partition for persistent `/var/log` retention |
+
+The BMC runs **without** an SD card. When a card is present, [`S05sd-logs`](tp2bmc/board/tp2bmc/overlay/etc/init.d/S05sd-logs) mounts `PARTLABEL=bmc-logs` and bind-mounts `…/persisted` onto `/var/log` if the partition exists. Disable that behaviour with an empty file **`/etc/bmc/disable-sd-logs`** (see [`disable-sd-logs.example`](tp2bmc/board/tp2bmc/overlay/etc/bmc/disable-sd-logs.example)). Runtime **`overlay`** partitions created by [`mount_overlay`](tp2bmc/board/tp2bmc/overlay/sbin/mount_overlay) on SD-root installs are separate from **bmc-logs**.
+
 ##### UART pins (`serialN` aliases)
 
 Mux lives in **`arch/arm/boot/dts/allwinner/sun8i-t113s.dtsi`** for the **pinned
@@ -546,7 +556,26 @@ for `uart*_…_pins`. Enabled in
 
 **Node serial helpers:** [`overlay/usr/bin/node1` … `node4`](tp2bmc/board/tp2bmc/overlay/usr/bin/) run **GNU `screen`** on `ttyS1`–`ttyS4` at **115200** (`screen /dev/ttyS* 115200`). Exit with **Ctrl-A**, then **\\** (quit) or **k** (kill); **Ctrl-A** **d** detaches. **BusyBox `microcom`** is not used for node consoles: without **`-X`** output is garbled on binary-heavy RK UART traffic; with **`-X`** there is no clean exit (Ctrl-X is disabled). If **`bmcd`** holds the UART, stop it before attaching (see [`docs/node1-rk1-bmc-debug.md`](docs/node1-rk1-bmc-debug.md)).
 
-**Netconsole (#180):** Linux ships **`CONFIG_NETCONSOLE`** with **dynamic** targets — the log collector address is **not** fixed at compile time. After boot, use **configfs** under `/sys/kernel/config/netconsole/` (create a target, set `remote_ip`, `remote_port`, `dev_name` e.g. `br0`, then `enabled=1`), or pass a one-shot **`netconsole=…`** string on the kernel cmdline. On a host: `nc -u -l -p 6666`. Details: `Documentation/networking/netconsole.rst` in the kernel tree.
+**Netconsole (#180):** Linux ships **`CONFIG_NETCONSOLE`** with **dynamic** targets — the collector address is **not** fixed at compile time.
+
+1. On a host: `nc -u -l -p 6666` (or your chosen UDP port).
+2. On the BMC (example collector `192.168.1.100`, port `6666`, egress `br0`):
+
+```sh
+modprobe configfs 2>/dev/null || true
+mount -t configfs none /sys/kernel/config 2>/dev/null || true
+mkdir -p /sys/kernel/config/netconsole/nd0
+echo 192.168.1.100 > /sys/kernel/config/netconsole/nd0/remote_ip
+echo 6666 > /sys/kernel/config/netconsole/nd0/remote_port
+echo br0 > /sys/kernel/config/netconsole/nd0/dev_name
+echo 1 > /sys/kernel/config/netconsole/nd0/enabled
+```
+
+3. **Persistence across reboot** (optional): save the four values above in e.g. `/etc/bmc/netconsole.conf` and source them from a small init hook, or add a one-shot **`netconsole=…`** fragment on the kernel cmdline in U-Boot/FIT if you prefer not to use configfs. Targets are cleared on reboot unless you recreate them.
+
+Kernel reference: `Documentation/networking/netconsole.rst` in the pinned kernel tree.
+
+**Remote syslog (BusyBox):** The image uses **BusyBox `syslogd`** with **`FEATURE_REMOTE_LOG`** ([`busybox.fragment`](tp2bmc/board/tp2bmc/busybox.fragment)) — same capability as upstream’s [`FEATURE_REMOTE_LOG`](https://github.com/vda-linux/busybox_mirror/blob/244c0a01eece537e9d7e8318a5c320a836cc604b/sysklogd/syslogd.c#L38) (`-R HOST[:PORT]`, `-L` for local + network). This replaces a separate **rsyslog** package (~600 KiB+) for basic UDP forwarding. Optional collector address: copy [`syslog-remote.example`](tp2bmc/board/tp2bmc/overlay/etc/bmc/syslog-remote.example) to `/etc/bmc/syslog-remote`, set `SYSLOG_REMOTE=collector:514`, then `/etc/init.d/S01syslog restart`. On the collector: `nc -u -l -p 514` or any syslog server. **Note:** BusyBox’s restricted `/etc/syslog.conf` only routes to **local files**; remote targets use **`-R`**, not `@@` rules like full rsyslog. For TLS, structured RFC 5424 relays, or complex filters, rsyslog/syslog-ng would still be a separate add.
 
 ##### Node GPIO lines (`gpio-line-names`)
 
@@ -648,11 +677,11 @@ firmware-complete on this line).
 | **`tpi` CLI** | Git `f9a5d58f42428f861693bdeac5acc0171872d807` in [`tp2bmc/package/tpi/tpi.mk`](tp2bmc/package/tpi/tpi.mk) (`TPI_VERSION`) |
 | **Raspberry Pi `usbboot` helper** | `2021.07.01` in [`tp2bmc/package/raspberrypi-target-usbboot/raspberrypi-target-usbboot.mk`](tp2bmc/package/raspberrypi-target-usbboot/raspberrypi-target-usbboot.mk) |
 
-Other user-visible tools (**OpenSSH**, **Chrony**, **tcpdump**, **GNU screen**, **BusyBox**, **Avahi**, **mtd-utils**, **e2fsprogs**, etc.) are **not** re-versioned in this repo: their versions come from the **Buildroot release tarball** you unpack with `./scripts/configure.sh`. To see the exact upstream version Buildroot selected for, say, OpenSSH, open `buildroot/package/openssh/openssh.mk` in your Buildroot tree after unpacking, or inspect the matching directory under `output/build/` after a build (e.g. `openssh-9.x`).
+Other user-visible tools (**OpenSSH**, **Chrony**, **tcpdump**, **GNU screen**, **strace**, **gdbserver** (host cross-gdb required), **BusyBox** (including **syslogd** with optional remote forwarding), **Avahi**, **mtd-utils**, **e2fsprogs**, etc.) are **not** re-versioned in this repo: their versions come from the **Buildroot release tarball** you unpack with `./scripts/configure.sh`. To see the exact upstream version Buildroot selected for, say, OpenSSH, open `buildroot/package/openssh/openssh.mk` in your Buildroot tree after unpacking, or inspect the matching directory under `output/build/` after a build (e.g. `openssh-9.x`).
 
 #### Direct `BR2_PACKAGE_*` selections in `tp2bmc_defconfig`
 
-The file [`tp2bmc/configs/tp2bmc_defconfig`](tp2bmc/configs/tp2bmc_defconfig) lists every **explicit** `BR2_PACKAGE_*=y` option enabled for this product (Avahi, Bash, Chrony, Collectd, OpenSSH, **tcpdump**, **screen**, `ifupdown-ng`, `i2c-tools`, etc.). Anything pulled in only as a **dependency** of those packages will also appear under `output/build/` but may not have its own `BR2_PACKAGE_*=y` line.
+The file [`tp2bmc/configs/tp2bmc_defconfig`](tp2bmc/configs/tp2bmc_defconfig) lists every **explicit** `BR2_PACKAGE_*=y` option enabled for this product (Avahi, Bash, Chrony, Collectd, OpenSSH, **tcpdump**, **screen**, **strace**, **gdb** gdbserver-only, `ifupdown-ng`, `i2c-tools`, etc.). **Python 3** is omitted on this line (~15 MiB under `usr/lib/python3.*` alone; revisit for 256 MiB NAND or a slimmer runtime — [#160](https://github.com/turing-machines/BMC-Firmware/issues/160)). Anything pulled in only as a **dependency** of those packages will also appear under `output/build/` but may not have its own `BR2_PACKAGE_*=y` line.
 
 #### Full listing (every Buildroot build directory)
 

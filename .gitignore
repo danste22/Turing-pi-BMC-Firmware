@@ -6,3 +6,8 @@ dist
 wip
 tmp
 .idea
+
+# Local kernel upgrade working notes (confidential Realtek references).
+tp2bmc/patches/linux/KERNEL_UPGRADE_LOG.md
+tp2bmc/patches/linux/patch-audit/
+tp2bmc/patches/linux/upstream-delta/

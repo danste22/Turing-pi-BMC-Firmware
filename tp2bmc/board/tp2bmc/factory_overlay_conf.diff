@@ -8,26 +8,27 @@ index 37a90c51..e97aee89 100644
  	hdimage {
  		partition-table-type = "hybrid"
  		gpt-location = 992K
-@@ -27,9 +27,22 @@ image tp2-bmc-firmware-sdcard.img {
+@@ -27,6 +27,10 @@ image tp2-bmc-firmware-sdcard.img {
  		# Equivalent to 370 LEBs of NAND:
  		size = 45880K
  	}
 +
-+    partition overlay {
++	partition overlay {
 +		image = "factory_overlay.ext4"
 +	}
- }
  
- image sdcard-bootpart.img {
- 	vfat {}
- 	size = 16M
+ 	# Optional persistent logs (GPT PARTLABEL=bmc-logs); not required at runtime.
+ 	partition bmc-logs {
+@@ -48,3 +52,11 @@ image sdcard-logs.ext4 {
+ 	}
+ 	size = 128M
  }
 +
 +image factory_overlay.ext4 {
-+    ext4 {
-+        label = "overlay"
-+        features = "filetype"
-+    }
-+    srcpath = "factory_overlay"
-+    size = 32M
++	ext4 {
++		label = "overlay"
++		features = "filetype"
++	}
++	srcpath = "factory_overlay"
++	size = 32M
 +}

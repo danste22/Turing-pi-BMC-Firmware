@@ -1,0 +1,6 @@
+# Copy to /etc/bmc/syslog-remote and set a collector (UDP syslog, default port 514).
+# Example:
+# SYSLOG_REMOTE=192.168.1.100:514
+#
+# Requires BusyBox syslogd with FEATURE_REMOTE_LOG (-R / -L). Restart logging:
+#   /etc/init.d/S01syslog restart
