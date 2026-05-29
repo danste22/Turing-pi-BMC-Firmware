@@ -3,4 +3,4 @@
 # SYSLOG_REMOTE=192.168.1.100:514
 #
 # Requires BusyBox syslogd with FEATURE_REMOTE_LOG (-R / -L). Restart logging:
-#   /etc/init.d/S01syslog restart
+#   /etc/init.d/S01syslogd restart

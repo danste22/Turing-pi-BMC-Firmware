@@ -39,6 +39,9 @@ else
 		> "${docdir}/buildroot-output-build-dir-listing.txt"
 fi
 
+# Logging: only Buildroot S01syslogd + S02klogd (/etc/default/syslogd for -R).
+rm -f "${TARGET_DIR}/etc/init.d/S01syslog"
+
 # #225: append mdev hook for stable /dev/disk/by-tpi/nodeN (UMS on 1-1.N only).
 marker="mdev-tpi-msd-symlink"
 mconf="${TARGET_DIR}/etc/mdev.conf"
