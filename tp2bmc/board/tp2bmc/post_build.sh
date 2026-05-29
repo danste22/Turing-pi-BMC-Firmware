@@ -47,9 +47,34 @@ chmod 755 "${TARGET_DIR}/etc/network/apply_bmc_mac.sh" 2>/dev/null || true
 chmod 755 "${TARGET_DIR}/etc/network/set_br0_mac_pre_dhcp.sh" 2>/dev/null || true
 chmod 755 "${TARGET_DIR}/etc/init.d/S39bmc-mac" 2>/dev/null || true
 
-# #225: append mdev hook for stable /dev/disk/by-tpi/nodeN (UMS on 1-1.N only).
-marker="mdev-tpi-msd-symlink"
+# #225: mdev hooks for /dev/disk/by-tpi/nodeN (block + USB hub port remove).
+mdev_script="mdev-tpi-msd-symlink"
 mconf="${TARGET_DIR}/etc/mdev.conf"
-if [ -f "${mconf}" ] && ! grep -qF "${marker}" "${mconf}"; then
-	printf '\n# %s (#225)\nsd[a-z] root:disk 660 @/usr/bin/%s\n' "${marker}" "${marker}" >>"${mconf}"
+chmod 755 "${TARGET_DIR}/usr/bin/${mdev_script}" 2>/dev/null || true
+if [ -f "${mconf}" ]; then
+	if ! grep -qF "mdev-tpi-msd-symlink (#225)" "${mconf}"; then
+		printf '\n# mdev-tpi-msd-symlink (#225)\nsd[a-z] root:disk 660 @/usr/bin/%s\n' \
+			"${mdev_script}" >>"${mconf}"
+	fi
+	if ! grep -qF "mdev-tpi-msd-usb (#225)" "${mconf}"; then
+		printf '\n# mdev-tpi-msd-usb (#225) — clear stale by-tpi on hub port disconnect\n' >>"${mconf}"
+		printf '1-1\\.[1-4](:.*)?\troot:usb\t660\t@/usr/bin/%s\n' "${mdev_script}" >>"${mconf}"
+		printf '2-1\\.[1-4](:.*)?\troot:usb\t660\t@/usr/bin/%s\n' "${mdev_script}" >>"${mconf}"
+	fi
+fi
+
+# Rootfs size snapshot for docs/rootfs-size-audit.md (NAND / 370 LEB budget).
+if [[ -d "${TARGET_DIR}" ]]; then
+	{
+		echo "Turing Pi BMC — staged rootfs size (Buildroot TARGET_DIR)"
+		echo "Generated at rootfs image assembly."
+		echo ""
+		du -sh "${TARGET_DIR}"
+		echo ""
+		echo "Top-level directories:"
+		du -h -d 1 "${TARGET_DIR}" 2>/dev/null | LC_ALL=C sort -hr
+		echo ""
+		echo "Largest paths under usr/ and lib/ (if present):"
+		du -h "${TARGET_DIR}/usr" "${TARGET_DIR}/lib" 2>/dev/null | LC_ALL=C sort -hr | head -25
+	} >"${docdir}/rootfs-staged-size.txt"
 fi

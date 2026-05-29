@@ -13,7 +13,7 @@ Hardware sign-off on **Turing Pi 2 v2.5.x** BMC (**2026-05-29**). Automated chec
 | C — Network / MAC | **PASS** | Factory EEPROM on `br0` (`c4:ff:84:…`); C2 static IP OK |
 | D — Boot noise / kconfig | **PASS** | Expected CCU↔RTC cycles only |
 | E1/E2 — MSD add | **PASS** | `by-tpi/nodeN` → `/dev/sdX`, RockUSB on `usb…/1-1.N` |
-| E3 — MSD `normal` | **FIX** | Stale symlink after RockUSB teardown — `mdev-tpi-msd-symlink` cleanup |
+| E3 — MSD `normal` | **FIX** | Stale symlink — block + **USB hub port** mdev cleanup |
 | E5 — MSD stress | **OPEN** | BMC reset; **not** a kernel-upgrade blocker (see below) |
 | F — DSA / RTL8370 | **PASS** | Switch + bridge ports up |
 
@@ -27,7 +27,7 @@ Hardware sign-off on **Turing Pi 2 v2.5.x** BMC (**2026-05-29**). Automated chec
 
 After `tpi advanced normal -nN`, `/sys/block/sdX` is gone but the symlink may remain (RockUSB often skips mdev `remove`).
 
-**Fix (overlay):** `cleanup_stale_by_tpi_links()` in `usr/bin/mdev-tpi-msd-symlink` — run on add/remove and before creating a new link.
+**Fix (overlay):** `cleanup_stale_by_tpi_links()` in `usr/bin/mdev-tpi-msd-symlink` — on block add/remove, before new links, and on **USB remove** for hub ports `1-1.N` / `2-1.N` (`mdev.conf` regex rules).
 
 **Runtime workaround:**
 
