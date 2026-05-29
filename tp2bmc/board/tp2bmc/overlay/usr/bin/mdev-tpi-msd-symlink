@@ -12,6 +12,18 @@ esac
 
 dir=/dev/disk/by-tpi
 
+# RockUSB teardown often skips mdev remove; drop symlinks whose block device is gone.
+cleanup_stale_by_tpi_links() {
+	for n in 1 2 3 4; do
+		link="${dir}/node${n}"
+		[ -L "$link" ] || continue
+		target=$(readlink "$link" 2>/dev/null) || continue
+		bname=${target#/dev/}
+		[ -n "$bname" ] || continue
+		[ -d "/sys/block/${bname}" ] || rm -f "$link"
+	done
+}
+
 # On remove, sysfs for the block device is often gone; unlink by target name.
 case "${ACTION:-}" in
 remove)
@@ -21,9 +33,12 @@ remove)
 		target=$(readlink "$link" 2>/dev/null) || continue
 		[ "$target" = "/dev/${MDEV}" ] && rm -f "$link"
 	done
+	cleanup_stale_by_tpi_links
 	exit 0
 	;;
 esac
+
+cleanup_stale_by_tpi_links
 
 dev=$(readlink -f "/sys/class/block/${MDEV}/device" 2>/dev/null) || exit 0
 
