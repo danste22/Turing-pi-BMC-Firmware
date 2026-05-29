@@ -133,6 +133,26 @@ bridge is up; changing `dsa` alone does not update `br0`. For a manual test use
 
 ---
 
+### E3 — Stale `/dev/disk/by-tpi` after MSD `normal` (#225)
+
+**Status:** fixed in overlay (`mdev-tpi-msd-symlink` stale-link cleanup).
+
+See validation notes and bench steps in [`docs/kernel-6.18-validation.md`](../../../docs/kernel-6.18-validation.md).
+
+---
+
+### E5 — BMC reset on second `advanced msd` after `power off` (not kernel)
+
+**Status:** reproduced on hardware; **does not block** 6.18 sign-off. Kernel MSD path is normal; no oops in captured `dmesg`.
+
+**Upstream one-liner** (for issue/PR text):
+
+> BMC resets to SPL when repeating `tpi advanced msd -nN` after `power off` + `msd` + `normal`; first cycle OK; kernel shows normal RockUSB on `usb1/1-1.2`, no oops.
+
+Full repro and capture notes: [`docs/kernel-6.18-validation.md`](../../../docs/kernel-6.18-validation.md).
+
+---
+
 ## How to use this file
 
 Add **L2**, **L3**, … for further kernel/DT/init backlog items.

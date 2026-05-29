@@ -85,7 +85,8 @@ The **`feat/buildroot-2026.02`** line completes the platform upgrade
 ([#235](https://github.com/turing-machines/BMC-Firmware/issues/235)): **Buildroot
 2024.05.1 → 2026.02.1**, **Linux 6.8.12 → 6.18.27**, refreshed Realtek DSA patches,
 and updated `BR2_EXTERNAL` packages. Package-level deltas from the old baseline are
-summarized in [`version.info`](version.info).
+summarized in [`version.info`](version.info). Hardware validation sign-off for this
+line is recorded in [`docs/kernel-6.18-validation.md`](docs/kernel-6.18-validation.md).
 
 This repository uses a `devcontainer` for a uniform development environment. The
 devcontainer is available in a linux and darwin version. Windows users are recommended
