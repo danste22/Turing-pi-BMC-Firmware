@@ -3,16 +3,9 @@
 # Whole-disk sd[a-z] on internal hub ports 1-1.N (usb1) or 2-1.N (usb2).
 # Includes RockUSB (ff) and standard UMS (08) on those ports — not other USB buses.
 
-[ "${SUBSYSTEM:-}" = block ] || exit 0
-
-case "${MDEV:-}" in
-sd[a-z]) ;;
-*) exit 0 ;;
-esac
-
 dir=/dev/disk/by-tpi
 
-# RockUSB teardown often skips mdev remove; drop symlinks whose block device is gone.
+# RockUSB teardown often skips block mdev remove; drop symlinks whose block device is gone.
 cleanup_stale_by_tpi_links() {
 	for n in 1 2 3 4; do
 		link="${dir}/node${n}"
@@ -23,6 +16,29 @@ cleanup_stale_by_tpi_links() {
 		[ -d "/sys/block/${bname}" ] || rm -f "$link"
 	done
 }
+
+# USB disconnect on internal hub child ports (EHCI 1-1.N or 2-1.N).
+if [ "${SUBSYSTEM:-}" = usb ]; then
+	case "${ACTION:-}" in
+	remove)
+		base="${MDEV%%:*}"
+		case "$base" in
+		1-1.1 | 1-1.2 | 1-1.3 | 1-1.4 | 2-1.1 | 2-1.2 | 2-1.3 | 2-1.4)
+			cleanup_stale_by_tpi_links
+			;;
+		esac
+		;;
+	esac
+	exit 0
+	;;
+esac
+
+[ "${SUBSYSTEM:-}" = block ] || exit 0
+
+case "${MDEV:-}" in
+sd[a-z]) ;;
+*) exit 0 ;;
+esac
 
 # On remove, sysfs for the block device is often gone; unlink by target name.
 case "${ACTION:-}" in

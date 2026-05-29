@@ -135,7 +135,7 @@ bridge is up; changing `dsa` alone does not update `br0`. For a manual test use
 
 ### E3 — Stale `/dev/disk/by-tpi` after MSD `normal` (#225)
 
-**Status:** fixed in overlay (`mdev-tpi-msd-symlink` stale-link cleanup).
+**Status:** fixed in overlay (`mdev-tpi-msd-symlink` stale-link cleanup on block + USB hub disconnect).
 
 See validation notes and bench steps in [`docs/kernel-6.18-validation.md`](../../../docs/kernel-6.18-validation.md).
 
