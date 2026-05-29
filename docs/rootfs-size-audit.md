@@ -113,6 +113,7 @@ Applied on **`feat/buildroot-2026.02`** to save space / build time before a musl
 | **`# BR2_TARGET_ROOTFS_TAR_GZIP`** | OTA ships **EROFS** only; tar.gz unused in `post_image.sh` |
 | **Duplicate `E2FSPROGS` line** removed | Defconfig hygiene |
 | **`post_build.sh`** → `usr/share/doc/turing-pi-bmc/rootfs-staged-size.txt` | Per-build size snapshot for this audit |
+| **OpenSSL B+C+D** in `tp2bmc_defconfig` | Drop legacy ciphers, weak SSL, engines, QUIC/CMP, debug hooks; keep modern TLS + `openssl` CLI. **Not** FIPS 140-3 certified. **collectd** kept. |
 
 After `git build`, read that file and `ls -lh output/images/rootfs.erofs` against the **45880 KiB** cap.
 
