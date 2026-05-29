@@ -232,8 +232,14 @@ i2c_bus2: i2c-bitbang {
 		#address-cells = <1>;
 		#size-cells = <1>;
 
-		mac_address: mac-address@2c {
-			reg = <0x2c 0x06>;
+		nvmem-layout {
+			compatible = "fixed-layout";
+			#address-cells = <1>;
+			#size-cells = <1>;
+
+			mac_address: mac-address@2c {
+				reg = <0x2c 0x06>;
+			};
 		};
 	};
 
@@ -323,6 +329,9 @@ i2c_bus2: i2c-bitbang {
 
 &emac {
 	status = "okay";
+	/* U-Boot / base DTS may inject a valid but wrong LA MAC; that wins over nvmem. */
+	/delete-property/ mac-address;
+	/delete-property/ local-mac-address;
 	nvmem-cells = <&mac_address>;
 	nvmem-cell-names = "mac-address";
 	pinctrl-names = "default";

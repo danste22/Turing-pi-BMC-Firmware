@@ -1,0 +1,20 @@
+#!/bin/sh
+# Apply factory EEPROM MAC to dsa before S40network brings up br0/DHCP.
+# Complements set_br0_mac_pre_dhcp.sh (br0 pre-up) when overlay interfaces omit it.
+
+case "$1" in
+start|"")
+	[ -f /etc/network/apply_bmc_mac.sh ] || exit 0
+	# shellcheck source=/dev/null
+	. /etc/network/apply_bmc_mac.sh
+	apply_bmc_mac dsa || true
+	;;
+stop)
+	;;
+*)
+	echo "Usage: $0 {start|stop}"
+	exit 1
+	;;
+esac
+
+exit 0

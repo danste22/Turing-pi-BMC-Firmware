@@ -40,6 +40,14 @@ migrate_overlay_interfaces_to_v2_1() {
     # Initialize bridge_ports_exist to 0
     bridge_ports_exist=0
 
+    # Ensure br0 DHCP stanza runs factory-MAC pre-up (overlay may predate 514bc8b0).
+    if [ $br0_exists -eq 1 ] && ! grep -qF 'set_br0_mac_pre_dhcp.sh' "$OVERLAY_INTERFACES" 2>/dev/null; then
+        sed -i '/^iface br0 inet dhcp/a\  pre-up /etc/network/set_br0_mac_pre_dhcp.sh' \
+            "$OVERLAY_INTERFACES"
+        echo "Added set_br0_mac_pre_dhcp.sh pre-up to overlay br0"
+        bridge_ports_added=1
+    fi
+
     # Check if bridge-ports exists under iface br0
     if [ $br0_exists -eq 1 ]; then
         # Using awk to check if bridge-ports exists only within the br0 interface block
@@ -160,6 +168,13 @@ case "$1" in
         # Rename `eth0` to `dsa` on boot, so that it is not confused for a usable
         # Ethernet interface
         ip link set eth0 name dsa
+
+        # Factory MAC also applied in S39bmc-mac (before S40network).
+        if [ -f /etc/network/apply_bmc_mac.sh ]; then
+            # shellcheck source=/dev/null
+            . /etc/network/apply_bmc_mac.sh
+            apply_bmc_mac dsa || true
+        fi
 
         # Perform migration of interfaces
         migrate_overlay_interfaces_to_v2_1
