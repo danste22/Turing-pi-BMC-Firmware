@@ -42,6 +42,11 @@ fi
 # Logging: only Buildroot S01syslogd + S02klogd (/etc/default/syslogd for -R).
 rm -f "${TARGET_DIR}/etc/init.d/S01syslog"
 
+# Factory MAC helpers (overlay may lose +x depending on host checkout).
+chmod 755 "${TARGET_DIR}/etc/network/apply_bmc_mac.sh" 2>/dev/null || true
+chmod 755 "${TARGET_DIR}/etc/network/set_br0_mac_pre_dhcp.sh" 2>/dev/null || true
+chmod 755 "${TARGET_DIR}/etc/init.d/S39bmc-mac" 2>/dev/null || true
+
 # #225: append mdev hook for stable /dev/disk/by-tpi/nodeN (UMS on 1-1.N only).
 marker="mdev-tpi-msd-symlink"
 mconf="${TARGET_DIR}/etc/mdev.conf"
