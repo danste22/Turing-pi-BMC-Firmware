@@ -4,6 +4,16 @@
 
 BMC_MAC_LOG_TAG=apply_bmc_mac
 
+# CPU-facing DSA master: Linux 6.18+ renames eth0 -> dsa during switch probe.
+# Do not rename eth0 in init before probe (breaks RTL8365MB port netdevs).
+bmc_dsa_cpu_iface() {
+	if ip link show dsa >/dev/null 2>&1; then
+		echo dsa
+	elif ip link show eth0 >/dev/null 2>&1; then
+		echo eth0
+	fi
+}
+
 log() {
 	echo "${BMC_MAC_LOG_TAG}: $*" >&2
 	logger -t "${BMC_MAC_LOG_TAG}" "$*" 2>/dev/null || true

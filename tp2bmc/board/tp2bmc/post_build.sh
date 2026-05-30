@@ -42,24 +42,34 @@ fi
 # Logging: only Buildroot S01syslogd + S02klogd (/etc/default/syslogd for -R).
 rm -f "${TARGET_DIR}/etc/init.d/S01syslog"
 
+BOARD_DIR="${0%/*}"
+# Overlay checkout may drop +x; rcS execs init scripts — must be 755 on erofs.
+find "${BOARD_DIR}/overlay/etc/init.d" -maxdepth 1 -name 'S*' -exec chmod 755 {} +
+find "${TARGET_DIR}/etc/init.d" -maxdepth 1 -name 'S*' -exec chmod 755 {} + 2>/dev/null || true
+
 # Factory MAC helpers (overlay may lose +x depending on host checkout).
 chmod 755 "${TARGET_DIR}/etc/network/apply_bmc_mac.sh" 2>/dev/null || true
 chmod 755 "${TARGET_DIR}/etc/network/set_br0_mac_pre_dhcp.sh" 2>/dev/null || true
-chmod 755 "${TARGET_DIR}/etc/init.d/S39bmc-mac" 2>/dev/null || true
 
 # #225: mdev hooks for /dev/disk/by-tpi/nodeN (block + USB hub port remove).
 mdev_script="mdev-tpi-msd-symlink"
 mconf="${TARGET_DIR}/etc/mdev.conf"
 chmod 755 "${TARGET_DIR}/usr/bin/${mdev_script}" 2>/dev/null || true
 if [ -f "${mconf}" ]; then
-	if ! grep -qF "mdev-tpi-msd-symlink (#225)" "${mconf}"; then
-		printf '\n# mdev-tpi-msd-symlink (#225)\nsd[a-z] root:disk 660 @/usr/bin/%s\n' \
+	# Idempotent: drop corrupt/duplicate hooks (must invoke @/usr/bin/..., not a host path).
+	sed -i '\|tp2bmc/board.*mdev-tpi-msd-symlink|d' "${mconf}"
+	sed -i 's/root:usb/root:root/g' "${mconf}"
+	sed -i '/# mdev-tpi-msd-symlink (#225)/d' "${mconf}"
+	sed -i '/# mdev-tpi-msd-usb (#225)/d' "${mconf}"
+	sed -i '/sd\[a-z\].*mdev-tpi-msd-symlink/d' "${mconf}"
+	sed -i '/[12]-1\\.[1-4].*mdev-tpi-msd-symlink/d' "${mconf}"
+	if ! grep -q '@/usr/bin/mdev-tpi-msd-symlink' "${mconf}"; then
+		printf '\n# mdev-tpi-msd-symlink (#225)\nsd[a-z]\troot:disk\t660\t@/usr/bin/%s\n' \
 			"${mdev_script}" >>"${mconf}"
-	fi
-	if ! grep -qF "mdev-tpi-msd-usb (#225)" "${mconf}"; then
-		printf '\n# mdev-tpi-msd-usb (#225) — clear stale by-tpi on hub port disconnect\n' >>"${mconf}"
-		printf '1-1\\.[1-4](:.*)?\troot:usb\t660\t@/usr/bin/%s\n' "${mdev_script}" >>"${mconf}"
-		printf '2-1\\.[1-4](:.*)?\troot:usb\t660\t@/usr/bin/%s\n' "${mdev_script}" >>"${mconf}"
+		printf '# mdev-tpi-msd-usb (#225) — stale by-tpi on hub port disconnect\n' >>"${mconf}"
+		# root:root — there is no "usb" group in Buildroot; root:usb breaks mdev -s.
+		printf '1-1\\.[1-4](:.*)?\troot:root\t660\t@/usr/bin/%s\n' "${mdev_script}" >>"${mconf}"
+		printf '2-1\\.[1-4](:.*)?\troot:root\t660\t@/usr/bin/%s\n' "${mdev_script}" >>"${mconf}"
 	fi
 fi
 
