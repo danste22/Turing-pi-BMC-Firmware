@@ -8,6 +8,7 @@ tmp
 .idea
 
 # Local kernel upgrade working notes (confidential Realtek references).
+docs/kernel-6.18-validation.md
 tp2bmc/patches/linux/KERNEL_UPGRADE_LOG.md
 tp2bmc/patches/linux/patch-audit/
 tp2bmc/patches/linux/upstream-delta/
