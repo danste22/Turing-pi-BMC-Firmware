@@ -30,8 +30,7 @@ if [ "${SUBSYSTEM:-}" = usb ]; then
 		;;
 	esac
 	exit 0
-	;;
-esac
+fi
 
 [ "${SUBSYSTEM:-}" = block ] || exit 0
 

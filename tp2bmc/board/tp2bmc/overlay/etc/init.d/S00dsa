@@ -10,6 +10,19 @@ DISABLE_MIGRATION_PATH="/mnt/overlay/upper/root/.disable_interface_migration"
 # Migrates the interfaces file to the v2.1 format
 # that replaces eth0 with br0 and adds the bridge-ports line
 #
+seed_overlay_interfaces() {
+    if [ -f "$OVERLAY_INTERFACES" ]; then
+        return 0
+    fi
+    if [ ! -f /etc/network/interfaces ]; then
+        echo "No /etc/network/interfaces to seed overlay"
+        return 1
+    fi
+    mkdir -p "$(dirname "$OVERLAY_INTERFACES")"
+    cp /etc/network/interfaces "$OVERLAY_INTERFACES"
+    echo "Seeded $OVERLAY_INTERFACES from /etc/network/interfaces"
+}
+
 migrate_overlay_interfaces_to_v2_1() {
     # Ensure the file exists
     if [ ! -f "$OVERLAY_INTERFACES" ]; then
@@ -164,18 +177,15 @@ migrate_overlay_interfaces_to_v2_1() {
 
 case "$1" in
     start|"")
-        # Kind of a hack, don't know where else to put this
-        # Rename `eth0` to `dsa` on boot, so that it is not confused for a usable
-        # Ethernet interface
-        ip link set eth0 name dsa
-
         # Factory MAC also applied in S39bmc-mac (before S40network).
         if [ -f /etc/network/apply_bmc_mac.sh ]; then
             # shellcheck source=/dev/null
             . /etc/network/apply_bmc_mac.sh
-            apply_bmc_mac dsa || true
+            cpu=$(bmc_dsa_cpu_iface)
+            [ -n "$cpu" ] && apply_bmc_mac "$cpu" || true
         fi
 
+        seed_overlay_interfaces
         # Perform migration of interfaces
         migrate_overlay_interfaces_to_v2_1
         ;;

@@ -7,7 +7,8 @@ start|"")
 	[ -f /etc/network/apply_bmc_mac.sh ] || exit 0
 	# shellcheck source=/dev/null
 	. /etc/network/apply_bmc_mac.sh
-	apply_bmc_mac dsa || true
+	cpu=$(bmc_dsa_cpu_iface)
+	[ -n "$cpu" ] && apply_bmc_mac "$cpu" || true
 	;;
 stop)
 	;;

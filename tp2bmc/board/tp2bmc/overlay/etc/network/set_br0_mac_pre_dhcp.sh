@@ -8,5 +8,7 @@ fi
 . /etc/network/apply_bmc_mac.sh
 
 ip link show br0 >/dev/null 2>&1 || exit 0
-apply_bmc_mac dsa br0 || true
+cpu=$(bmc_dsa_cpu_iface)
+[ -n "$cpu" ] || exit 0
+apply_bmc_mac "$cpu" br0 || true
 exit 0

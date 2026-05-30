@@ -3,7 +3,7 @@
 # Static / overridden BMC management MAC and IP (see GitHub #238).
 #
 # --- Init ordering (why this file is not enough on its own) ---
-# `S00dsa` renames the CPU DSA link `eth0` -> `dsa`.  User traffic uses `br0`.
+# DSA images use CPU master `dsa` (kernel renames from `eth0` after probe).  User traffic uses `br0`.
 # Buildroot's `S40network` runs `ifup br0` *before* this script is invoked from
 # `S93startup`, so the first DHCP DISCOVER can happen with the wrong MAC unless
 # something runs earlier.  `/etc/network/set_br0_mac_pre_dhcp.sh` is wired as
@@ -28,7 +28,7 @@
 # do not inject shell metacharacters into those files (see F10 in
 # KERNEL_UPGRADE_LOG.md).
 
-# LAN-facing interface: v2.1+ DSA images use br0; eth0 is renamed to dsa (S00dsa).
+# LAN-facing interface: v2.1+ DSA images use br0; CPU link is dsa (or eth0 pre-probe).
 set_static_net_iface() {
 	if ip link show br0 >/dev/null 2>&1; then
 		echo br0
