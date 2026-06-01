@@ -11,7 +11,7 @@
 
     images {
         kernel6_18 {
-            description = "turingpi 6.18.27";
+            description = "turingpi 6.18.33";
             data = /incbin/("./zImage");
             type = "kernel";
             arch = "arm";
