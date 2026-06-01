@@ -58,12 +58,12 @@ visibility reasons, we will mainly use the issue tracker of this repository.
 
 ## Install firmware
 
->**Note: If you are running a firmware version lower than < v2.0.0, you must do
->a one-time-only SD card upgrade to version v2.0.0.**
+> **Note: If you are running a firmware version lower than < v2.0.0, you must do
+> a one-time-only SD card upgrade to version v2.0.0.**
 >
->**Note 2: Prior to v2.0.0 a third-party tool 'PhoenixSuit' was required to
->flash firmware. This tool is obsoleted, and only the methods described on our
->website can be used to flash your board.**
+> **Note 2: Prior to v2.0.0 a third-party tool 'PhoenixSuit' was required to
+> flash firmware. This tool is obsoleted, and only the methods described on our
+> website can be used to flash your board.**
 
 The latest firmware images can be found on the [release page](https://github.com/turing-machines/BMC-firmware/releases).
 
@@ -80,13 +80,6 @@ The build process uses [Buildroot](https://buildroot.org/) **2026.02.1** (see
 [`scripts/configure.sh`](scripts/configure.sh)); further documentation can be found
 [here](https://buildroot.org/downloads/manual/manual.html). Buildroot is not
 included in this repository and needs to be downloaded once before building.
-
-The **`feat/buildroot-2026.02`** line completes the platform upgrade
-([#235](https://github.com/turing-machines/BMC-Firmware/issues/235)): **Buildroot
-2024.05.1 → 2026.02.1**, **Linux 6.8.12 → 6.18.27**, refreshed Realtek DSA patches,
-and updated `BR2_EXTERNAL` packages. Package-level deltas from the old baseline are
-summarized in [`version.info`](version.info). Hardware validation sign-off for this
-line is recorded in [`docs/kernel-6.18-validation.md`](docs/kernel-6.18-validation.md).
 
 This repository uses a `devcontainer` for a uniform development environment. The
 devcontainer is available in a linux and darwin version. Windows users are recommended
@@ -428,11 +421,11 @@ flowchart TB
 Port labels come from `ethernet_switch` / `ethernet-ports` in
 [`sun8i-t113s-turing-pi2.dtsi`](tp2bmc/board/tp2bmc/sun8i-t113s-turing-pi2.dtsi):
 
-| Label | Connection |
-|-------|----------------|
-| **node1** … **node4** | Internal PHY toward each compute slot’s **Ethernet** |
-| **cpu** | **DSA CPU port** to the SoC **`&emac`** (via **RTL8201F** RMII) |
-| **ge0**, **ge1** | **External RJ45** front-panel **Gigabit** ports |
+| Label                 | Connection                                                      |
+| --------------------- | --------------------------------------------------------------- |
+| **node1** … **node4** | Internal PHY toward each compute slot’s **Ethernet**            |
+| **cpu**               | **DSA CPU port** to the SoC **`&emac`** (via **RTL8201F** RMII) |
+| **ge0**, **ge1**      | **External RJ45** front-panel **Gigabit** ports                 |
 
 #### Advanced switching (shell cookbook)
 
@@ -529,11 +522,11 @@ refers to **PD3+N**.
 
 **SD card image layout** (`tp2-bmc-firmware-sdcard.img` from [`genimage.cfg`](tp2bmc/board/tp2bmc/genimage.cfg)):
 
-| Partition | Role |
-|-----------|------|
-| **boot** (FAT) | Installer / recovery payload (also mounted at `/mnt/sdcard` when present) |
-| **rootfs** | EROFS in a **45880K** partition (370 LEBs of NAND — see `genimage.cfg`) |
-| **bmc-logs** (ext4, optional) | Extra **128 MiB** partition for persistent `/var/log` retention |
+| Partition                     | Role                                                                      |
+| ----------------------------- | ------------------------------------------------------------------------- |
+| **boot** (FAT)                | Installer / recovery payload (also mounted at `/mnt/sdcard` when present) |
+| **rootfs**                    | EROFS in a **45880K** partition (370 LEBs of NAND — see `genimage.cfg`)   |
+| **bmc-logs** (ext4, optional) | Extra **128 MiB** partition for persistent `/var/log` retention           |
 
 The BMC runs **without** an SD card. When a card is present, [`S05sd-logs`](tp2bmc/board/tp2bmc/overlay/etc/init.d/S05sd-logs) mounts `PARTLABEL=bmc-logs` and bind-mounts `…/persisted` onto `/var/log` if the partition exists. Disable that behaviour with an empty file **`/etc/bmc/disable-sd-logs`** (see [`disable-sd-logs.example`](tp2bmc/board/tp2bmc/overlay/etc/bmc/disable-sd-logs.example)). Runtime **`overlay`** partitions created by [`mount_overlay`](tp2bmc/board/tp2bmc/overlay/sbin/mount_overlay) on SD-root installs are separate from **bmc-logs**.
 
@@ -545,17 +538,17 @@ Use a checkout under **`tmp/`** or **`output/build/linux-<version>/`** and grep
 for `uart*_…_pins`. Enabled in
 [`sun8i-t113s-turing-pi2.dtsi`](tp2bmc/board/tp2bmc/sun8i-t113s-turing-pi2.dtsi).
 
-| Alias | Controller | Pinctrl node | Pins (TX, RX) |
-|-------|------------|--------------|---------------|
-| `serial0` | **UART3** | `uart3_pb_pins` | **PB6**, **PB7** |
-| `serial1` | **UART2** | `uart2_pd_pins` (board `dtsi`) | **PD1**, **PD2** |
-| `serial2` | **UART1** | `uart1_pg6_pins` | **PG6**, **PG7** |
-| `serial3` | **UART4** | `uart4_pb_pins` (board `dtsi`) | **PB2**, **PB3** |
-| `serial4` | **UART5** | `uart5_pb_pins` (board `dtsi`) | **PB4**, **PB5** |
+| Alias     | Controller | Pinctrl node                   | Pins (TX, RX)    |
+| --------- | ---------- | ------------------------------ | ---------------- |
+| `serial0` | **UART3**  | `uart3_pb_pins`                | **PB6**, **PB7** |
+| `serial1` | **UART2**  | `uart2_pd_pins` (board `dtsi`) | **PD1**, **PD2** |
+| `serial2` | **UART1**  | `uart1_pg6_pins`               | **PG6**, **PG7** |
+| `serial3` | **UART4**  | `uart4_pb_pins` (board `dtsi`) | **PB2**, **PB3** |
+| `serial4` | **UART5**  | `uart5_pb_pins` (board `dtsi`) | **PB4**, **PB5** |
 
 `serial0` is **115200 8N1** (`stdout-path`). Pinctrl lists **TX then RX**.
 
-**Node serial helpers:** [`overlay/usr/bin/node1` … `node4`](tp2bmc/board/tp2bmc/overlay/usr/bin/) run **GNU `screen`** on `ttyS1`–`ttyS4` at **115200** (`screen /dev/ttyS* 115200`). Exit with **Ctrl-A**, then **\\** (quit) or **k** (kill); **Ctrl-A** **d** detaches. **BusyBox `microcom`** is not used for node consoles: without **`-X`** output is garbled on binary-heavy RK UART traffic; with **`-X`** there is no clean exit (Ctrl-X is disabled). If **`bmcd`** holds the UART, stop it before attaching (see [`docs/node1-rk1-bmc-debug.md`](docs/node1-rk1-bmc-debug.md)).
+**Node serial helpers:** [`overlay/usr/bin/node1` … `node4`](tp2bmc/board/tp2bmc/overlay/usr/bin/) run **GNU `screen`** on `ttyS1`–`ttyS4` at **115200** (`screen /dev/ttyS* 115200`). Exit with **Ctrl-A**, then **\\** (quit) or **k** (kill); **Ctrl-A** **d** detaches. **BusyBox `microcom`** is not used for node consoles: without **`-X`** output is garbled on binary-heavy RK UART traffic; with **`-X`** there is no clean exit (Ctrl-X is disabled). If **`bmcd`** holds the UART, stop it before attaching (see `dev-docs/node1-rk1-bmc-debug.md`, local).
 
 **Netconsole (#180):** Linux ships **`CONFIG_NETCONSOLE`** with **dynamic** targets — the collector address is **not** fixed at compile time.
 
@@ -582,59 +575,59 @@ Kernel reference: `Documentation/networking/netconsole.rst` in the pinned kernel
 
 **PCB v2.4**
 
-| GPIO name | Pin | Notes |
-|-----------|-----|--------|
-| `node1-en` | **PD11** | active low |
-| `node1-rst` | **PD0** | active low |
+| GPIO name          | Pin      | Notes       |
+| ------------------ | -------- | ----------- |
+| `node1-en`         | **PD11** | active low  |
+| `node1-rst`        | **PD0**  | active low  |
 | `node1-usbotg-dev` | **PD19** | active high |
-| `node1-rpiboot` | **PD15** | active low |
-| `node2-en` | **PD10** | active low |
-| `node2-rst` | **PD20** | active low |
+| `node1-rpiboot`    | **PD15** | active low  |
+| `node2-en`         | **PD10** | active low  |
+| `node2-rst`        | **PD20** | active low  |
 | `node2-usbotg-dev` | **PD18** | active high |
-| `node2-rpiboot` | **PD14** | active low |
-| `node3-en` | **PD9** | active low |
-| `node3-rst` | **PD21** | active low |
+| `node2-rpiboot`    | **PD14** | active low  |
+| `node3-en`         | **PD9**  | active low  |
+| `node3-rst`        | **PD21** | active low  |
 | `node3-usbotg-dev` | **PD17** | active high |
-| `node3-rpiboot` | **PD12** | active low |
-| `node4-en` | **PD8** | active low |
-| `node4-rst` | **PD22** | active low |
+| `node3-rpiboot`    | **PD12** | active low  |
+| `node4-en`         | **PD8**  | active low  |
+| `node4-rst`        | **PD22** | active low  |
 | `node4-usbotg-dev` | **PD16** | active high |
-| `node4-rpiboot` | **PD13** | active low |
+| `node4-rpiboot`    | **PD13** | active low  |
 
 **PCB v2.5.x** — no `node*-rst`; only **`node1-usbotg-dev`** besides **en** /
 **rpiboot**.
 
-| GPIO name | Pin | Notes |
-|-----------|-----|--------|
-| `node1-en` | **PD11** | `gpio_latch` index **8**, active low |
-| `node1-usbotg-dev` | **PD19** | direct SoC |
-| `node1-rpiboot` | **PD15** | direct SoC |
-| `node2-en` | **PD10** | latch index **7** |
-| `node2-rpiboot` | **PD14** | direct SoC |
-| `node3-en` | **PD9** | latch index **6** |
-| `node3-rpiboot` | **PD12** | direct SoC |
-| `node4-en` | **PD8** | latch index **5** |
-| `node4-rpiboot` | **PD13** | direct SoC |
+| GPIO name          | Pin      | Notes                                |
+| ------------------ | -------- | ------------------------------------ |
+| `node1-en`         | **PD11** | `gpio_latch` index **8**, active low |
+| `node1-usbotg-dev` | **PD19** | direct SoC                           |
+| `node1-rpiboot`    | **PD15** | direct SoC                           |
+| `node2-en`         | **PD10** | latch index **7**                    |
+| `node2-rpiboot`    | **PD14** | direct SoC                           |
+| `node3-en`         | **PD9**  | latch index **6**                    |
+| `node3-rpiboot`    | **PD12** | direct SoC                           |
+| `node4-en`         | **PD8**  | latch index **5**                    |
+| `node4-rpiboot`    | **PD13** | direct SoC                           |
 
 **USB (v2.5+ DT):** **`&ehci1`** → `hub@1` → **`node1@1` … `node4@4`**; sysfs paths for MSD are typically **`…/usb2/2-1/2-1.N/…`** on **EHCI** (and may be **`…/usb1/1-1/1-1.N/…`** on other roots) — **`mdev-tpi-msd-symlink`** accepts **both** patterns for **`/dev/disk/by-tpi/nodeN`**.
 
 ##### Node slot 5 V enables (regulator `gpio`)
 
-| Function | v2.4 | v2.5.0 | v2.5.1+ |
-|----------|------|--------|---------|
-| ATX 12 V | **PD3** | latch **0** → **PD3** | same |
-| Slot 1 | **PD7** | latch **4** → **PD7** | same |
-| Slot 2 | **PD6** | latch **2** → **PD5** | latch **3** → **PD6** |
-| Slot 3 | **PD5** | latch **3** → **PD6** | latch **2** → **PD5** |
-| Slot 4 | **PD4** | latch **1** → **PD4** | same |
+| Function | v2.4    | v2.5.0                | v2.5.1+               |
+| -------- | ------- | --------------------- | --------------------- |
+| ATX 12 V | **PD3** | latch **0** → **PD3** | same                  |
+| Slot 1   | **PD7** | latch **4** → **PD7** | same                  |
+| Slot 2   | **PD6** | latch **2** → **PD5** | latch **3** → **PD6** |
+| Slot 3   | **PD5** | latch **3** → **PD6** | latch **2** → **PD5** |
+| Slot 4   | **PD4** | latch **1** → **PD4** | same                  |
 
 ##### USB hub / BMC OTG supply (DT)
 
-| Topic | v2.4 | v2.5 / v2.5.1+ |
-|-------|------|----------------|
-| Hub port VBUS | **PG4** `reg_usb_port_vbus` | not in board DTS |
-| Gadget VBUS | **PG12** → `usb0_vbus-supply` on **`&usbphy`** | no `usb0_vbus-supply` in shared `dtsi` |
-| **`&usb_otg`** | **otg** + role switch | **`peripheral`** ([`sun8i-t113s-turing-pi2.dtsi`](tp2bmc/board/tp2bmc/sun8i-t113s-turing-pi2.dtsi)) |
+| Topic          | v2.4                                           | v2.5 / v2.5.1+                                                                                      |
+| -------------- | ---------------------------------------------- | --------------------------------------------------------------------------------------------------- |
+| Hub port VBUS  | **PG4** `reg_usb_port_vbus`                    | not in board DTS                                                                                    |
+| Gadget VBUS    | **PG12** → `usb0_vbus-supply` on **`&usbphy`** | no `usb0_vbus-supply` in shared `dtsi`                                                              |
+| **`&usb_otg`** | **otg** + role switch                          | **`peripheral`** ([`sun8i-t113s-turing-pi2.dtsi`](tp2bmc/board/tp2bmc/sun8i-t113s-turing-pi2.dtsi)) |
 
 **EHCI** to modules is separate from **`&usb_otg` / `usbphy`**.
 
@@ -642,14 +635,14 @@ Kernel reference: `Documentation/networking/netconsole.rst` in the pinned kernel
 
 Read-only in Linux. Layout / burn: [`tp2bmc/board/tp2bmc/uboot.env`](tp2bmc/board/tp2bmc/uboot.env).
 
-| Offset | Length | Content |
-|--------|--------|---------|
-| 0x00–0x01 | 2 B | Erased `0xFFFF` before re-burn |
-| 0x02–0x05 | 4 B | CRC32 over **0x06–0x1F** |
-| 0x06–0x07 | 2 B | Header magic |
-| 0x08–0x09 | 2 B | **`eeprom_ver`** (e.g. `0x1100` v2.4.0, `0x1140` v2.5.0, `0x1141` v2.5.1, `0x1142` v2.5.2) |
-| 0x2C–0x31 | 6 B | **MAC** → `dwmac-sun8i` NVMEM |
-| remainder | — | reserved |
+| Offset    | Length | Content                                                                                    |
+| --------- | ------ | ------------------------------------------------------------------------------------------ |
+| 0x00–0x01 | 2 B    | Erased `0xFFFF` before re-burn                                                             |
+| 0x02–0x05 | 4 B    | CRC32 over **0x06–0x1F**                                                                   |
+| 0x06–0x07 | 2 B    | Header magic                                                                               |
+| 0x08–0x09 | 2 B    | **`eeprom_ver`** (e.g. `0x1100` v2.4.0, `0x1140` v2.5.0, `0x1141` v2.5.1, `0x1142` v2.5.2) |
+| 0x2C–0x31 | 6 B    | **MAC** → `dwmac-sun8i` NVMEM                                                              |
+| remainder | —      | reserved                                                                                   |
 
 U-Boot picks the **FIT config** from **`eeprom_ver`** ([`turing-pi2.its`](tp2bmc/board/tp2bmc/turing-pi2.its)); corrupt EEPROM can load the wrong DTB.
 
@@ -657,7 +650,7 @@ U-Boot picks the **FIT config** from **`eeprom_ver`** ([`turing-pi2.its`](tp2bmc
 
 The BMC image is a **Buildroot** rootfs plus this repo’s **`BR2_EXTERNAL`** (`tp2bmc/`). There are two useful views of “what is installed”:
 
-1. **Versions pinned in *this* repository** — kernel, bootloader, and Turing Pi–owned packages. These are the values you can audit without running a build.
+1. **Versions pinned in _this_ repository** — kernel, bootloader, and Turing Pi–owned packages. These are the values you can audit without running a build.
 2. **Everything Buildroot actually compiled into the rootfs** — hundreds of packages and dependencies. The authoritative names and upstream versions appear as **directory names** under Buildroot’s `output/build/` (convention: `<name>-<version>`).
 
 #### Versions defined in this repository
@@ -667,16 +660,16 @@ The BMC image is a **Buildroot** rootfs plus this repo’s **`BR2_EXTERNAL`** (`
 **Linux 6.18.27** ([#235](https://github.com/turing-machines/BMC-Firmware/issues/235)
 firmware-complete on this line).
 
-| Component | Where the version is pinned |
-|-----------|-------------------------------|
-| **Buildroot** | **`2026.02.1`** in [`scripts/configure.sh`](scripts/configure.sh) (`BUILDROOT_VER`) |
-| **Linux kernel** | **`6.18.27`** in [`tp2bmc/configs/tp2bmc_defconfig`](tp2bmc/configs/tp2bmc_defconfig) (`BR2_LINUX_KERNEL_CUSTOM_VERSION_VALUE`) |
-| **U-Boot** | Git commit `540468d5d61505b1f21e1fb753c55b81ea634b00` in [`tp2bmc/configs/tp2bmc_defconfig`](tp2bmc/configs/tp2bmc_defconfig) (`BR2_TARGET_UBOOT_CUSTOM_REPO_VERSION`) |
-| **bmcd** | `v2.3.4` in [`tp2bmc/package/bmcd/bmcd.mk`](tp2bmc/package/bmcd/bmcd.mk) (`BMCD_VERSION`) |
-| **BMC-UI** (static Web UI) | `v3.3.6` in [`tp2bmc/package/bmc-ui/bmc-ui.mk`](tp2bmc/package/bmc-ui/bmc-ui.mk) (`BMC_UI_VERSION`) |
-| **BMC-Installer** (recovery / SD init) | Git `eef33d0f72728831650ab4d04b5225993f002b31` in [`tp2bmc/package/bmc_installer/bmc_installer.mk`](tp2bmc/package/bmc_installer/bmc_installer.mk) |
-| **`tpi` CLI** | Git `f9a5d58f42428f861693bdeac5acc0171872d807` in [`tp2bmc/package/tpi/tpi.mk`](tp2bmc/package/tpi/tpi.mk) (`TPI_VERSION`) |
-| **Raspberry Pi `usbboot` helper** | `2021.07.01` in [`tp2bmc/package/raspberrypi-target-usbboot/raspberrypi-target-usbboot.mk`](tp2bmc/package/raspberrypi-target-usbboot/raspberrypi-target-usbboot.mk) |
+| Component                              | Where the version is pinned                                                                                                                                            |
+| -------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| **Buildroot**                          | **`2026.02.1`** in [`scripts/configure.sh`](scripts/configure.sh) (`BUILDROOT_VER`)                                                                                    |
+| **Linux kernel**                       | **`6.18.27`** in [`tp2bmc/configs/tp2bmc_defconfig`](tp2bmc/configs/tp2bmc_defconfig) (`BR2_LINUX_KERNEL_CUSTOM_VERSION_VALUE`)                                        |
+| **U-Boot**                             | Git commit `540468d5d61505b1f21e1fb753c55b81ea634b00` in [`tp2bmc/configs/tp2bmc_defconfig`](tp2bmc/configs/tp2bmc_defconfig) (`BR2_TARGET_UBOOT_CUSTOM_REPO_VERSION`) |
+| **bmcd**                               | `v2.3.4` in [`tp2bmc/package/bmcd/bmcd.mk`](tp2bmc/package/bmcd/bmcd.mk) (`BMCD_VERSION`)                                                                              |
+| **BMC-UI** (static Web UI)             | `v3.3.6` in [`tp2bmc/package/bmc-ui/bmc-ui.mk`](tp2bmc/package/bmc-ui/bmc-ui.mk) (`BMC_UI_VERSION`)                                                                    |
+| **BMC-Installer** (recovery / SD init) | Git `eef33d0f72728831650ab4d04b5225993f002b31` in [`tp2bmc/package/bmc_installer/bmc_installer.mk`](tp2bmc/package/bmc_installer/bmc_installer.mk)                     |
+| **`tpi` CLI**                          | Git `f9a5d58f42428f861693bdeac5acc0171872d807` in [`tp2bmc/package/tpi/tpi.mk`](tp2bmc/package/tpi/tpi.mk) (`TPI_VERSION`)                                             |
+| **Raspberry Pi `usbboot` helper**      | `2021.07.01` in [`tp2bmc/package/raspberrypi-target-usbboot/raspberrypi-target-usbboot.mk`](tp2bmc/package/raspberrypi-target-usbboot/raspberrypi-target-usbboot.mk)   |
 
 Other user-visible tools (**OpenSSH**, **Chrony**, **tcpdump**, **GNU screen**, **strace**, **gdbserver** (host cross-gdb required), **BusyBox** (including **syslogd** with optional remote forwarding), **Avahi**, **mtd-utils**, **e2fsprogs**, etc.) are **not** re-versioned in this repo: their versions come from the **Buildroot release tarball** you unpack with `./scripts/configure.sh`. To see the exact upstream version Buildroot selected for, say, OpenSSH, open `buildroot/package/openssh/openssh.mk` in your Buildroot tree after unpacking, or inspect the matching directory under `output/build/` after a build (e.g. `openssh-9.x`).
 

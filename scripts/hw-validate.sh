@@ -1,11 +1,11 @@
 #!/bin/sh
-# Hardware validation — feat/buildroot-2026.02 / kernel 6.18.27
+# Hardware validation — feat/buildroot-2026.02 / kernel 6.18.33
 # Run on a flashed BMC:  sh hw-validate.sh | tee /tmp/hw-validate.log
 # Manual sections: E (MSD per node), B2 (screen UART), C2 (static IP lab test)
 
 set -u
 
-EXPECTED_KERNEL="6.18.27"
+EXPECTED_KERNEL="6.18.33"
 REPORT=/tmp/hw-validate-"$(date +%Y%m%d-%H%M%S 2>/dev/null || echo run)".log
 
 pass() { printf 'PASS  %s\n' "$1"; }
@@ -161,8 +161,8 @@ fi
 if [ -r /proc/config.gz ]; then
 	zcat /proc/config.gz 2>/dev/null | grep -q '^CONFIG_F2FS_FS=' && fail "D4 CONFIG_F2FS_FS=y" || pass "D4 CONFIG_F2FS_FS off"
 	zcat /proc/config.gz 2>/dev/null | grep -q '^CONFIG_EXFAT_FS=' && fail "D4 CONFIG_EXFAT_FS=y" || pass "D4 CONFIG_EXFAT_FS off"
-elif [ -f /boot/config-6.18.27 ]; then
-	grep -q '^CONFIG_F2FS_FS=y' /boot/config-6.18.27 && fail "D4 F2FS=y" || pass "D4 F2FS off"
+elif [ -f "/boot/config-${EXPECTED_KERNEL}" ]; then
+	grep -q '^CONFIG_F2FS_FS=y' "/boot/config-${EXPECTED_KERNEL}" && fail "D4 F2FS=y" || pass "D4 F2FS off"
 else
 	skip "D4 kconfig — no /proc/config.gz"
 fi
@@ -182,7 +182,7 @@ else
 	info "  readlink -f /dev/disk/by-tpi/nodeN"
 	info "  tpi advanced normal -nN"
 fi
-skip "E1–E4 full matrix — one node at a time (see docs/kernel-6.18-validation.md)"
+skip "E1–E4 full matrix — one node at a time (msd/normal per node)"
 
 # --- F: DSA smoke ---
 section "F — DSA / switch"
