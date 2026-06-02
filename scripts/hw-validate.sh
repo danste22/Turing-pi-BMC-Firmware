@@ -1,11 +1,75 @@
 #!/bin/sh
 # Hardware validation — feat/buildroot-2026.02 / kernel 6.18.33
-# Run on a flashed BMC:  sh hw-validate.sh | tee /tmp/hw-validate.log
+# Run on a flashed BMC (factory board MAC is not stored in this script):
+#   sh hw-validate.sh --mac aa:bb:cc:dd:ee:ff | tee /tmp/hw-validate.log
+#   EXPECTED_BOARD_MAC=aa:bb:cc:dd:ee:ff sh hw-validate.sh
 # Manual sections: E (MSD per node), B2 (screen UART), C2 (static IP lab test)
 
 set -u
 
+usage() {
+	cat <<'EOF'
+Usage: hw-validate.sh [--mac ADDR] [ADDR]
+
+  --mac ADDR   Expected factory board MAC on br0 (also: first positional arg)
+  ADDR         Same as --mac when the value contains ':'
+
+Environment:
+  EXPECTED_BOARD_MAC   Same as --mac
+
+If no MAC is given, section C skips the factory MAC/OUI match (other C checks still run).
+EOF
+}
+
+normalize_mac() {
+	printf '%s' "$1" | tr 'A-F' 'a-f'
+}
+
+mac_oui_prefix() {
+	# First three octets, e.g. c4:ff:84 from c4:ff:84:10:00:ba
+	printf '%s' "$1" | awk -F: '{ if (NF >= 3) print $1":"$2":"$3; }'
+}
+
 EXPECTED_KERNEL="6.18.33"
+EXPECTED_BOARD_MAC=${EXPECTED_BOARD_MAC:-}
+
+while [ $# -gt 0 ]; do
+	case "$1" in
+	-h|--help)
+		usage
+		exit 0
+		;;
+	--mac)
+		if [ $# -lt 2 ]; then
+			echo "hw-validate.sh: --mac requires an address" >&2
+			exit 1
+		fi
+		EXPECTED_BOARD_MAC=$2
+		shift 2
+		;;
+	-*)
+		echo "hw-validate.sh: unknown option: $1" >&2
+		usage >&2
+		exit 1
+		;;
+	*)
+		if [ -z "$EXPECTED_BOARD_MAC" ] && printf '%s' "$1" | grep -q ':'; then
+			EXPECTED_BOARD_MAC=$1
+			shift
+		else
+			echo "hw-validate.sh: unexpected argument: $1" >&2
+			usage >&2
+			exit 1
+		fi
+		;;
+	esac
+done
+
+if [ -n "$EXPECTED_BOARD_MAC" ]; then
+	EXPECTED_BOARD_MAC=$(normalize_mac "$EXPECTED_BOARD_MAC")
+	EXPECTED_BOARD_OUI=$(mac_oui_prefix "$EXPECTED_BOARD_MAC")
+fi
+
 REPORT=/tmp/hw-validate-"$(date +%Y%m%d-%H%M%S 2>/dev/null || echo run)".log
 
 pass() { printf 'PASS  %s\n' "$1"; }
@@ -110,11 +174,26 @@ if ip link show br0 >/dev/null 2>&1; then
 	br_mac=$(ip -br link show br0 2>/dev/null | awk '{print $3}')
 	br_ip=$(ip -br addr show br0 2>/dev/null | awk '{print $3}')
 	pass "C1 br0 up: mac=$br_mac addr=$br_ip"
-	case "$br_mac" in
-	c4:ff:84:*) pass "C1 factory OUI on br0" ;;
-	02:00:*) fail "C1 br0 still locally administered ($br_mac) — check apply_bmc_mac / S39bmc-mac" ;;
-	*) warn "C1 unexpected br0 MAC: $br_mac" ;;
-	esac
+	br_mac=$(normalize_mac "$br_mac")
+	if [ -n "$EXPECTED_BOARD_MAC" ]; then
+		if [ "$br_mac" = "$EXPECTED_BOARD_MAC" ]; then
+			pass "C1 board MAC matches expected"
+		else
+			case "$br_mac" in
+			"${EXPECTED_BOARD_OUI}"*)
+				pass "C1 factory OUI on br0 (expected prefix $EXPECTED_BOARD_OUI)"
+				;;
+			*)
+				fail "C1 br0 MAC $br_mac (expected $EXPECTED_BOARD_MAC)"
+				;;
+			esac
+		fi
+	else
+		case "$br_mac" in
+		02:00:*) fail "C1 br0 still locally administered ($br_mac) — check apply_bmc_mac / S39bmc-mac" ;;
+		esac
+		skip "C1 factory MAC check — pass --mac ADDR or EXPECTED_BOARD_MAC"
+	fi
 else
 	fail "C1 br0 missing"
 fi
@@ -204,6 +283,9 @@ for p in ge1 dsa; do
 done
 
 section "Done"
-info "Full log: run with: sh $0 2>&1 | tee $REPORT"
+info "Full log: run with: sh $0 [--mac ADDR] 2>&1 | tee $REPORT"
+if [ -n "$EXPECTED_BOARD_MAC" ]; then
+	info "Expected board MAC: $EXPECTED_BOARD_MAC"
+fi
 info "Board: $(cat /sys/firmware/devicetree/base/model 2>/dev/null | tr -d '\0')"
 info "Commit under test: run on build host: git rev-parse --short HEAD"
