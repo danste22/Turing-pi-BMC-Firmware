@@ -380,7 +380,7 @@ flowchart TB
     NGPIO["turing,pi2-nodes + gpio-latch v2.5"]
     PWM["pwm-fan PWM5 PD21 v2.5"]
   end
-  subgraph i2c[i2c_bus2 bit-bang PE12 SCL PE13 SDA]
+  subgraph i2c[i2c2 TWI PE12 SCL PE13 SDA]
     EEP["24LC02 0x50 NVMEM MAC"]
     RTL["RTL8370MB 0x5c SMI / DSA"]
     RTC["PCF8563 0x51 placement varies"]
@@ -483,23 +483,25 @@ does not support the **`rtl8_4`** DSA tag on the CPU conduit).
 
 Kernel/DSA patch series live under [`tp2bmc/patches/linux/`](tp2bmc/patches/linux/); maintainer-only upgrade notes are **not** in the public tree.
 
-#### I²C / SMI (`i2c_bus2`)
+#### I²C / SMI (`&i2c2` on PE12 / PE13)
 
-The Realtek switch uses **SMI-over-I²C** in a way the SoC **hardware TWI** cannot
-handle, so Linux uses **`i2c-gpio`** on **PE12 (SCL)** / **PE13 (SDA)** as
-`i2c_bus2`. That bus carries the **24LC02** at **0x50**, the **RTL8370MB**
-management interface at **0x5c**, and (per DT variant) **PCF8563** at **0x51**.
+**`&i2c2`** (hardware TWI on **PE12 / PE13**) carries the **24LC02** at **0x50**,
+the **RTL8370MB** management interface at **0x5c** (`realtek,rtl8365mb-i2c`), and
+(per DT variant) **PCF8563** at **0x51**. The switch uses **SMI-over-I²C** with
+**`I2C_FUNC_NOSTART`**, implemented on this board by **mv64xxx** (patch **i2c-05** /
+EFR). An **`i2c-gpio`** bit-bang on the same pins is **not** required (validated on
+Linux **6.18.33**).
 
 **Fan control**
 
 - **v2.5.x** DT: **`pwm-fan`** on **PWM5 / PD21** ([`sun8i-t113s-turing-pi2-v2.5.dts`](tp2bmc/board/tp2bmc/sun8i-t113s-turing-pi2-v2.5.dts)); no EMC2301 node.
-- **v2.4** DT only: optional **EMC2301 @ 0x2f** on `i2c_bus2` for user-soldered fan
+- **v2.4** DT only: optional **EMC2301 @ 0x2f** on `&i2c2` for user-soldered fan
   IC ([`sun8i-t113s-turing-pi2-v2.4.dts`](tp2bmc/board/tp2bmc/sun8i-t113s-turing-pi2-v2.4.dts)); no `pwm-fan` node.
 
 **RTC**
 
 - **v2.5.0**: **PCF8563 @ 0x51** on **`i2c0` PG12 / PG13**.
-- **v2.5.1+**: **`i2c0` disabled** for RTC; **PCF8563 @ 0x51** on **`i2c_bus2`**.
+- **v2.5.1+**: **`i2c0` disabled** for RTC; **PCF8563 @ 0x51** on **`&i2c2`**.
 
 **Node control / USB**
 
