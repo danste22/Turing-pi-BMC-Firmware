@@ -1,0 +1,12 @@
+U-Boot board and driver changes belong in the U-Boot tree, not here:
+
+  https://github.com/danste22/Turing-pi-u-boot
+  local: ../turing-bmc-bootloader (branch feat/uboot-2026.04)
+
+Buildroot pulls a git pin via BR2_TARGET_UBOOT_CUSTOM_REPO_VERSION in
+tp2bmc/configs/tp2bmc_defconfig. After changing U-Boot, push to that repo
+and bump the pin — do not add BR2_TARGET_UBOOT_PATCH copies under tp2bmc/.
+
+The former tp2bmc/patches/uboot-2026.04/ directory was a transient
+workaround while the product pin lagged reference; it duplicated sources
+already in board/turing/pi2/ on the U-Boot fork.

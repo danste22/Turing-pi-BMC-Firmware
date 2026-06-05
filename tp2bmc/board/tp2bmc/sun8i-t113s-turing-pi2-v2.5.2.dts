@@ -1,0 +1,10 @@
+// SPDX-License-Identifier: GPL-2.0+
+// Copyright (C) 2024 Sven Rademakers <sven@turingpi.com>
+//
+// v2.5.2: same hardware and MTD layout as v2.5.1 (255 MiB ubi on 256 MiB NAND).
+// Partition sizes live in sun8i-t113s-turing-pi2-v2.5.dts — not duplicated here.
+#include "sun8i-t113s-turing-pi2-v2.5.1.dts"
+
+/ {
+	model = "Turing Pi 2 (v2.5.2)";
+};

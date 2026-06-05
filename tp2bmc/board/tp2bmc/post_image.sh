@@ -1,8 +1,29 @@
 #!/bin/bash
 
 set -euo pipefail
-BOARD_DIR="${0%/*}"
-cd $BINARIES_DIR
+BOARD_DIR="$(cd "$(dirname "$0")" && pwd)"
+TP2BMC_DIR="$(cd "${BOARD_DIR}/../.." && pwd)"
+# shellcheck source=uboot_build_dir.sh
+source "${BOARD_DIR}/uboot_build_dir.sh"
+cd "${BINARIES_DIR}"
+
+pin="$(tp2bmc_uboot_pin "${TP2BMC_DIR}/configs/tp2bmc_defconfig")"
+if ! uboot_build="$(tp2bmc_uboot_resolve_dir "${BUILD_DIR}" "${pin}")"; then
+	echo "${uboot_build}" >&2
+	exit 1
+fi
+if [[ -n "${uboot_build}" ]]; then
+	BUILD_DIR="${BUILD_DIR}" UBOOT_DIR="${uboot_build}" \
+		"${TP2BMC_DIR}/scripts/validate_spi_boot_stack.sh" \
+		"${BINARIES_DIR}/u-boot-sunxi-with-spl.bin"
+fi
+
+sdcard_img="${BINARIES_DIR}/tp2-bmc-firmware-sdcard.img"
+if [[ -f "${sdcard_img}" ]]; then
+	"${TP2BMC_DIR}/scripts/check_sdcard_install_image.sh" "${sdcard_img}"
+else
+	echo "WARN: missing ${sdcard_img} — SD install image not validated"
+fi
 
 create_sdcard() {
     rootpath=$(mktemp -d)
@@ -12,6 +33,11 @@ create_sdcard() {
     mkdir -p "$rootpath"/boot
     mkimage -A arm -T script -d "$bootscript" "$rootpath"/boot/boot.scr.uimg
     mkimage -A arm -T ramdisk -d installer.cpio.gz "$rootpath"/boot/install.img
+    if [ ! -f turing-pi2.itb ]; then
+        echo "error: turing-pi2.itb missing from BINARIES_DIR (post_build.sh should copy it)" >&2
+        exit 1
+    fi
+    cp turing-pi2.itb "$rootpath"/boot/turing-pi2.itb
     cp -r $BOARD_DIR/sdcard_overlay/* "$rootpath"/
 
     chmod -R 755 "$rootpath"
