@@ -60,6 +60,18 @@
             };
         };
 
+        fdt-v2.5.2 {
+            description = "sun8i-t113s-turing-pi2-v2.5.2";
+            data = /incbin/("./sun8i-t113s-turing-pi2-v2.5.2.dtb");
+            type = "flat_dt";
+            arch = "arm";
+            compression = "none";
+            load = <0x41800000>;
+            hash-1 {
+                algo = "sha1";
+            };
+        };
+
         fdt-locked {
             description = "sun8i-t113s-turing-pi2-locked";
             data = /incbin/("./sun8i-t113s-turing-pi2-locked.dtb");
@@ -100,7 +112,7 @@
         config-v2.5.2 {
             description = "turing-pi v2.5.2 configuration";
             kernel = "kernel6_18";
-            fdt = "fdt-v2.5.1";
+            fdt = "fdt-v2.5.2";
             compatible = "turing,pi2", "allwinner,sun8i-t113s";
         };
 
