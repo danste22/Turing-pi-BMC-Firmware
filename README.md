@@ -382,7 +382,8 @@ flowchart TB
   end
   subgraph i2c[i2c2 TWI PE12 SCL PE13 SDA]
     EEP["24LC02 0x50 NVMEM MAC"]
-    RTL["RTL8370MB 0x5c SMI / DSA"]
+    ARB["tpi-i2c-smi-arbiter"]
+    RTL["RTL8370MB GPIO SMI / DSA"]
     RTC["PCF8563 0x51 placement varies"]
     EMC["EMC2301 0x2f optional v2.4 DT"]
   end
@@ -485,12 +486,12 @@ Kernel/DSA patch series live under [`tp2bmc/patches/linux/`](tp2bmc/patches/linu
 
 #### I²C / SMI (`&i2c2` on PE12 / PE13)
 
-**`&i2c2`** (hardware TWI on **PE12 / PE13**) carries the **24LC02** at **0x50**,
-the **RTL8370MB** management interface at **0x5c** (`realtek,rtl8365mb-i2c`), and
-(per DT variant) **PCF8563** at **0x51**. The switch uses **SMI-over-I²C** with
-**`I2C_FUNC_NOSTART`**, implemented on this board by **mv64xxx** (patch **i2c-05** /
-EFR). An **`i2c-gpio`** bit-bang on the same pins is **not** required (validated on
-Linux **6.18.33**).
+**`&i2c2`** (hardware TWI on **PE12 / PE13**) carries the **24LC02** at **0x50** and
+(per DT variant) **PCF8563** at **0x51**. The **RTL8370MB** switch is managed via
+**GPIO SMI bitbang** on the same pins (**PE12** = SCK, **PE13** = SDA), with
+**`tpi-i2c-smi-arbiter`** muxing between HW I²C (EEPROM / RTC) and SMI traffic.
+Kernel patches live under [`tp2bmc/patches/linux/tpi-smi-mux/`](tp2bmc/patches/linux/tpi-smi-mux/).
+Maintainer upgrade notes (including upstream **`realtek_forward`** monitor): [`KERNEL_UPGRADE_LOG.md`](tp2bmc/patches/linux/KERNEL_UPGRADE_LOG.md).
 
 **Fan control**
 

@@ -1,0 +1,30 @@
+# SPDX-License-Identifier: GPL-2.0+
+# Copyright (C) 2023 Sam Edwards <CFSworks@gmail.com>
+# PoC: installer uses GPIO SMI DT when EEPROM selects config-v2.5.2.
+
+installer_marker=/install.txt
+
+if test "${bootmode}" != "safemode"; then
+	echo Checking ${installer_marker}...
+	if test -e ${devtype} ${devnum}:${distro_bootpart} ${installer_marker}; then
+		echo ...exists: entering installer
+
+		tpi_info hw_version tpi_hw_version
+
+		if load ${devtype} ${devnum}:${distro_bootpart} ${loadaddr} /boot/turing-pi2.itb \
+			&& load ${devtype} ${devnum}:${distro_bootpart} ${ramdisk_addr_r} /boot/install.img
+		then
+			env set bootargs loglevel=4
+			if test "${tpi_fit_config}" = "config-v2.5.2"; then
+				setenv tpi_fit_config config-v2.5.2-smi-mux
+			fi
+			echo Installer FIT ${tpi_fit_config} (EEPROM ${tpi_hw_version})
+			bootm ${loadaddr}#${tpi_fit_config} ${ramdisk_addr_r}
+		else
+			echo Failed to load installer files from boot partition
+			echo Expected /boot/turing-pi2.itb and /boot/install.img on partition ${distro_bootpart}
+		fi
+	else
+		echo ...does not exist: proceeding with normal boot
+	fi
+fi

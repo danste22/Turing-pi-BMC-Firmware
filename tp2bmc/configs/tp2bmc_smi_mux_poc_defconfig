@@ -1,3 +1,4 @@
+# PoC only — see dev-docs/poc-smi-mux-pe12.md. Production: tp2bmc_defconfig
 # Architecture
 BR2_arm=y
 BR2_cortex_a7=y
@@ -24,9 +25,9 @@ BR2_LINUX_KERNEL_CUSTOM_VERSION_VALUE="6.18.33"
 BR2_PACKAGE_HOST_LINUX_HEADERS_CUSTOM_6_18=y
 BR2_LINUX_KERNEL_PATCH="$(BR2_EXTERNAL_TP2BMC_PATH)/patches/linux/power $(BR2_EXTERNAL_TP2BMC_PATH)/patches/linux/gpio $(BR2_EXTERNAL_TP2BMC_PATH)/patches/linux/pwm $(BR2_EXTERNAL_TP2BMC_PATH)/patches/linux/i2c $(BR2_EXTERNAL_TP2BMC_PATH)/patches/linux/net-dsa $(BR2_EXTERNAL_TP2BMC_PATH)/patches/linux/tpi-smi-mux"
 BR2_LINUX_KERNEL_USE_CUSTOM_CONFIG=y
-BR2_LINUX_KERNEL_CUSTOM_CONFIG_FILE="$(BR2_EXTERNAL_TP2BMC_PATH)/board/tp2bmc/linux_defconfig"
+BR2_LINUX_KERNEL_CUSTOM_CONFIG_FILE="$(BR2_EXTERNAL_TP2BMC_PATH)/board/tp2bmc/linux_smi_mux_poc_defconfig"
 BR2_LINUX_KERNEL_DTS_SUPPORT=y
-BR2_LINUX_KERNEL_CUSTOM_DTS_PATH="$(BR2_EXTERNAL_TP2BMC_PATH)/board/tp2bmc/sun8i-t113s-turing-pi2.dtsi $(BR2_EXTERNAL_TP2BMC_PATH)/board/tp2bmc/sun8i-t113s-turing-pi2-v2.4.dts $(BR2_EXTERNAL_TP2BMC_PATH)/board/tp2bmc/sun8i-t113s-turing-pi2-v2.5.1.dts $(BR2_EXTERNAL_TP2BMC_PATH)/board/tp2bmc/sun8i-t113s-turing-pi2-v2.5.2.dts $(BR2_EXTERNAL_TP2BMC_PATH)/board/tp2bmc/sun8i-t113s-turing-pi2-v2.5.dts $(BR2_EXTERNAL_TP2BMC_PATH)/board/tp2bmc/sun8i-t113s-turing-pi2-locked.dts"
+BR2_LINUX_KERNEL_CUSTOM_DTS_PATH="$(BR2_EXTERNAL_TP2BMC_PATH)/board/tp2bmc/sun8i-t113s-turing-pi2.dtsi $(BR2_EXTERNAL_TP2BMC_PATH)/board/tp2bmc/sun8i-t113s-turing-pi2-v2.4.dts $(BR2_EXTERNAL_TP2BMC_PATH)/board/tp2bmc/sun8i-t113s-turing-pi2-v2.5.1.dts $(BR2_EXTERNAL_TP2BMC_PATH)/board/tp2bmc/sun8i-t113s-turing-pi2-v2.5.2.dts $(BR2_EXTERNAL_TP2BMC_PATH)/board/tp2bmc/sun8i-t113s-turing-pi2-v2.5.dts $(BR2_EXTERNAL_TP2BMC_PATH)/board/tp2bmc/sun8i-t113s-turing-pi2-locked.dts $(BR2_EXTERNAL_TP2BMC_PATH)/board/tp2bmc/sun8i-t113s-turing-pi2-smi-mux.dtsi $(BR2_EXTERNAL_TP2BMC_PATH)/board/tp2bmc/sun8i-t113s-turing-pi2-v2.5.2-smi-mux.dts"
 BR2_LINUX_KERNEL_DTB_KEEP_DIRNAME=y
 BR2_LINUX_KERNEL_DTB_OVERLAY_SUPPORT=y
 BR2_LINUX_KERNEL_NEEDS_HOST_OPENSSL=y

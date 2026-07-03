@@ -7,9 +7,11 @@ if [[ "${HOST_OS^^}" == "DARWIN" ]]; then
     # Sync container back to repository
     echo "Syncing container back to repository"
     rsync -hrPti --update --fsync --exclude buildroot --exclude .git --exclude dist /work/ /mnt | tee -a /tmp/sync.log
-    
+
+    rsync -hrPti --update --fsync --exclude .patch-work --exclude tmp --exclude buildroot --exclude .git --exclude dist /work/ /mnt | tee -a /tmp/sync.log
+
     echo "Syncing repository to container"
-    rsync -hrPti --delete --update --fsync --exclude buildroot --exclude .git /mnt/ /work | tee -a /tmp/sync.log
+    rsync -hrPti --delete --update --fsync --exclude .patch-work  --exclude tmp --exclude buildroot --exclude .git /mnt/ /work | tee -a /tmp/sync.log
 else
     echo "sync.sh is only used on macOS"
     exit 1

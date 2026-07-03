@@ -1,3 +1,4 @@
+# PoC: vanilla SMI + shared-bus arbiter (see dev-docs/poc-smi-mux-pe12.md)
 # CONFIG_LOCALVERSION_AUTO is not set
 CONFIG_SYSVIPC=y
 CONFIG_NO_HZ=y

@@ -76,7 +76,7 @@ fi
 cp "$PWD"/*.its "$BINARIES_DIR/"
 cd "$BINARIES_DIR"
 fit_itb="$BINARIES_DIR/turing-pi2.itb"
-"$mkimage" -E -f "turing-pi2.its" "$fit_itb"
+"$mkimage" -E -f turing-pi2.its "$fit_itb"
 if [ ! -f "$fit_itb" ]; then
 	echo "error: mkimage did not create ${fit_itb}" >&2
 	exit 1

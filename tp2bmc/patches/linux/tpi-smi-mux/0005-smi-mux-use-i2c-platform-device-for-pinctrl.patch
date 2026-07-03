@@ -1,0 +1,81 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: TP2 BMC <tp2bmc@local>
+Date: Wed, 01 Jul 2026 14:00:00 +0200
+Subject: [PATCH 5/5] tpi-smi-mux: arbitrate on I2C platform device, not adapter
+
+mv64xxx registers pm_runtime and binds the default TWI pinctrl on the
+platform device (2502800.i2c). The arbiter was using the child i2c
+adapter (i2c-0), so smi_mode tried to claim PE12/PE13 already held by
+the parent — pinctrl smi_mode failed with -EINVAL.
+
+Use adap->dev.parent for pinctrl and runtime PM.
+
+Signed-off-by: TP2 BMC <tp2bmc@local>
+---
+ drivers/i2c/busses/tpi-i2c-smi-arbiter.c | 19 ++++++++++++-------
+ 1 file changed, 12 insertions(+), 7 deletions(-)
+
+diff --git a/drivers/i2c/busses/tpi-i2c-smi-arbiter.c b/drivers/i2c/busses/tpi-i2c-smi-arbiter.c
+index b2c3d4e5f6a7..c3d4e5f6a7b8 100644
+--- a/drivers/i2c/busses/tpi-i2c-smi-arbiter.c
++++ b/drivers/i2c/busses/tpi-i2c-smi-arbiter.c
+@@ -18,6 +18,7 @@
+ 
+ struct tpi_smi_arb {
+ 	struct device *dev;
++	struct device *ctl_dev;
+ 	struct i2c_adapter *adap;
+ 	struct pinctrl *pctl;
+ 	struct pinctrl_state *st_default;
+@@ -45,10 +46,10 @@ int tpi_smi_arb_begin(struct device *arb_dev)
+ 	mutex_lock(&arb->lock);
+ 	i2c_lock_bus(arb->adap, I2C_LOCK_ROOT_ADAPTER);
+ 
+-	if (pm_runtime_enabled(&arb->adap->dev))
+-		pm_runtime_put_sync(&arb->adap->dev);
++	if (pm_runtime_enabled(arb->ctl_dev))
++		pm_runtime_put_sync(arb->ctl_dev);
+ 
+-	pinctrl_pm_select_idle_state(&arb->adap->dev);
++	pinctrl_pm_select_idle_state(arb->ctl_dev);
+ 
+ 	ret = pinctrl_select_state(arb->pctl, arb->st_smi);
+ 	if (ret) {
+@@ -78,10 +79,10 @@ void tpi_smi_arb_end(struct device *arb_dev)
+ 	if (ret)
+ 		dev_err(arb->dev, "pinctrl default failed: %d\n", ret);
+ 
+-	pinctrl_pm_select_default_state(&arb->adap->dev);
++	pinctrl_pm_select_default_state(arb->ctl_dev);
+ 
+-	if (pm_runtime_enabled(&arb->adap->dev))
+-		pm_runtime_get_sync(&arb->adap->dev);
++	if (pm_runtime_enabled(arb->ctl_dev))
++		pm_runtime_get_sync(arb->ctl_dev);
+ 
+ 	i2c_unlock_bus(arb->adap, I2C_LOCK_ROOT_ADAPTER);
+ 	mutex_unlock(&arb->lock);
+@@ -112,8 +113,11 @@ static int tpi_smi_arb_probe(struct platform_device *pdev)
+ 				     "I2C adapter not ready\n");
+ 
+ 	arb->adap = adap;
++	arb->ctl_dev = adap->dev.parent;
++	if (!arb->ctl_dev)
++		arb->ctl_dev = &adap->dev;
+ 
+-	arb->pctl = devm_pinctrl_get(&adap->dev);
++	arb->pctl = devm_pinctrl_get(arb->ctl_dev);
+ 	if (IS_ERR(arb->pctl))
+ 		return dev_err_probe(&pdev->dev, PTR_ERR(arb->pctl),
+ 				     "pinctrl get failed\n");
+@@ -134,8 +138,8 @@ static int tpi_smi_arb_probe(struct platform_device *pdev)
+ 	debugfs_create_u32("bracket_count", 0444, arb->debugfs,
+ 			   &arb->bracket_count);
+ 
+-	dev_info(&pdev->dev, "arbiter on %s (adapter %d)\n",
+-		 dev_name(&adap->dev), adap->nr);
++	dev_info(&pdev->dev, "arbiter on %s via %s (adapter %d)\n",
++		 dev_name(arb->ctl_dev), dev_name(&adap->dev), adap->nr);
+ 
+ 	return 0;
+ }

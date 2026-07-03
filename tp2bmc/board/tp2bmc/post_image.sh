@@ -5,6 +5,7 @@ BOARD_DIR="$(cd "$(dirname "$0")" && pwd)"
 TP2BMC_DIR="$(cd "${BOARD_DIR}/../.." && pwd)"
 # shellcheck source=uboot_build_dir.sh
 source "${BOARD_DIR}/uboot_build_dir.sh"
+
 cd "${BINARIES_DIR}"
 
 pin="$(tp2bmc_uboot_pin "${TP2BMC_DIR}/configs/tp2bmc_defconfig")"

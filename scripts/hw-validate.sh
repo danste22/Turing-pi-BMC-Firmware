@@ -99,6 +99,40 @@ cleanup_stale_by_tpi_links() {
 	done
 }
 
+find_i2c_device() {
+	addr=$1
+	for dev in /sys/bus/i2c/devices/*-"$addr"; do
+		[ -e "$dev/name" ] || continue
+		printf '%s\n' "$dev"
+		return 0
+	done
+	return 1
+}
+
+format_mac_hex() {
+	printf '%s' "$1" | sed 's/../&:/g; s/:$//'
+}
+
+read_eeprom_mac() {
+	eeprom_file=$1
+	if command -v hexdump >/dev/null 2>&1; then
+		dd if="$eeprom_file" bs=1 skip=44 count=6 2>/dev/null \
+			| hexdump -v -e '6/1 "%02x" "\n"'
+	elif command -v od >/dev/null 2>&1; then
+		dd if="$eeprom_file" bs=1 skip=44 count=6 2>/dev/null \
+			| od -An -tx1 | tr -d ' \n'
+	else
+		return 1
+	fi
+}
+
+netdev_master() {
+	dev=$1
+	if [ -e "/sys/class/net/$dev/master" ]; then
+		basename "$(readlink "/sys/class/net/$dev/master" 2>/dev/null)"
+	fi
+}
+
 # --- A: image sanity ---
 section "A — Image and toolchain"
 kr=$(uname -r 2>/dev/null || echo unknown)
@@ -263,24 +297,158 @@ else
 fi
 skip "E1–E4 full matrix — one node at a time (msd/normal per node)"
 
-# --- F: DSA smoke ---
-section "F — DSA / switch"
-if dmesg 2>/dev/null | grep -qi 'RTL8370'; then
-	pass "F1 RTL8370MB in dmesg"
+# --- F: I2C shared bus ---
+section "F — I2C / EEPROM / RTC / SMI arbiter"
+if dmesg 2>/dev/null | grep -qi 'arbiter on .*i2c'; then
+	pass "F1 tpi-i2c-smi-arbiter probe: $(dmesg 2>/dev/null | grep -i 'arbiter on .*i2c' | tail -1)"
 else
-	fail "F1 no RTL8370 in dmesg"
+	fail "F1 no tpi-i2c-smi-arbiter probe line in dmesg"
 fi
-for p in node1 node2 node3 node4 ge0 ge1 dsa br0; do
-	ip link show "$p" >/dev/null 2>&1 && info "F1 netdev: $p" || true
-done
-ip link show br0 2>/dev/null | grep -q UP && pass "F1 br0 UP" || warn "F1 br0 not UP"
 
-for p in ge1 dsa; do
+if eeprom_dev=$(find_i2c_device 0050); then
+	eeprom_name=$(cat "$eeprom_dev/name" 2>/dev/null || echo unknown)
+	pass "F2 EEPROM present: $(basename "$eeprom_dev") name=$eeprom_name"
+	if [ -r "$eeprom_dev/eeprom" ]; then
+		eeprom_mac_hex=$(read_eeprom_mac "$eeprom_dev/eeprom" 2>/dev/null || true)
+		if [ "${#eeprom_mac_hex}" = 12 ]; then
+			eeprom_mac=$(normalize_mac "$(format_mac_hex "$eeprom_mac_hex")")
+			pass "F2 EEPROM MAC read: $eeprom_mac"
+			if [ -n "$EXPECTED_BOARD_MAC" ]; then
+				if [ "$eeprom_mac" = "$EXPECTED_BOARD_MAC" ]; then
+					pass "F2 EEPROM MAC matches expected"
+				else
+					warn "F2 EEPROM MAC $eeprom_mac differs from expected $EXPECTED_BOARD_MAC"
+				fi
+			fi
+		else
+			fail "F2 EEPROM read failed or returned ${#eeprom_mac_hex} hex chars"
+		fi
+	else
+		fail "F2 EEPROM sysfs data file missing at $eeprom_dev/eeprom"
+	fi
+else
+	fail "F2 EEPROM @0x50 missing from /sys/bus/i2c/devices"
+fi
+
+if rtc_i2c_dev=$(find_i2c_device 0051); then
+	pass "F3 RTC I2C device present: $(basename "$rtc_i2c_dev") name=$(cat "$rtc_i2c_dev/name" 2>/dev/null || echo unknown)"
+else
+	board_model=$(cat /sys/firmware/devicetree/base/model 2>/dev/null | tr -d '\0')
+	case "$board_model" in
+	*"v2.4"*) skip "F3 RTC @0x51 not expected on v2.4 base DT" ;;
+	*) fail "F3 RTC @0x51 missing from /sys/bus/i2c/devices" ;;
+	esac
+fi
+
+rtc_found=0
+for rtc in /sys/class/rtc/rtc*; do
+	[ -e "$rtc/name" ] || continue
+	rtc_name=$(cat "$rtc/name" 2>/dev/null || echo unknown)
+	case "$rtc_name" in
+	*pcf8563*|*PCF8563*)
+		rtc_found=1
+		rtc_dev="/dev/$(basename "$rtc")"
+		pass "F3 external RTC present: $(basename "$rtc") name=$rtc_name"
+		if command -v hwclock >/dev/null 2>&1; then
+			rtc_time=$(hwclock -f "$rtc_dev" -r 2>/dev/null || hwclock -r 2>/dev/null || true)
+			if [ -n "$rtc_time" ]; then
+				pass "F3 RTC read: $rtc_time"
+				printf '%s' "$rtc_time" | grep -q '20[2-9][0-9]' \
+					|| warn "F3 RTC time did not include a modern year"
+			else
+				fail "F3 hwclock could not read $rtc_dev"
+			fi
+		elif [ -r "$rtc/time" ] && [ -r "$rtc/date" ]; then
+			pass "F3 RTC sysfs read: $(cat "$rtc/date" 2>/dev/null) $(cat "$rtc/time" 2>/dev/null)"
+		else
+			fail "F3 no hwclock and no readable RTC sysfs time"
+		fi
+		;;
+	esac
+done
+if [ "$rtc_found" = 0 ]; then
+	board_model=$(cat /sys/firmware/devicetree/base/model 2>/dev/null | tr -d '\0')
+	case "$board_model" in
+	*"v2.4"*) skip "F3 external PCF8563 RTC not expected on v2.4 base DT" ;;
+	*) fail "F3 external PCF8563 RTC not found" ;;
+	esac
+fi
+
+if emc_dev=$(find_i2c_device 002f); then
+	pass "F4 optional EMC2301 present: $(basename "$emc_dev") name=$(cat "$emc_dev/name" 2>/dev/null || echo unknown)"
+else
+	warn "F4 optional EMC2301 @0x2f not present (normal unless v2.4 fan mod is populated)"
+fi
+
+if dmesg 2>/dev/null | grep -qi 'realtek-smi-i2c\|rtl8365mb-i2c\|I2C_FUNC_NOSTART'; then
+	fail "F5 retired RTK-over-I2C/NOSTART path still appears in dmesg"
+else
+	pass "F5 no retired RTK-over-I2C/NOSTART path in dmesg"
+fi
+
+# --- G: DSA smoke ---
+section "G — DSA / switch / network interfaces"
+if dmesg 2>/dev/null | grep -qi 'RTL8370'; then
+	pass "G1 RTL8370MB in dmesg"
+else
+	fail "G1 no RTL8370 in dmesg"
+fi
+for p in br0 node1 node2 node3 node4 ge0 ge1; do
 	if ip link show "$p" >/dev/null 2>&1; then
-		speed=$(cat "/sys/class/net/$p/speed" 2>/dev/null || echo ?)
-		info "F2 $p speed=${speed}Mb/s"
+		master=$(netdev_master "$p")
+		state=$(cat "/sys/class/net/$p/operstate" 2>/dev/null || echo unknown)
+		carrier=$(cat "/sys/class/net/$p/carrier" 2>/dev/null || echo n/a)
+		info "G2 netdev: $p state=$state carrier=$carrier master=${master:-none}"
+		pass "G2 netdev present: $p"
+	else
+		fail "G2 netdev missing: $p"
 	fi
 done
+if ip link show dsa >/dev/null 2>&1; then
+	state=$(cat /sys/class/net/dsa/operstate 2>/dev/null || echo unknown)
+	info "G2 optional CPU conduit netdev: dsa state=$state"
+else
+	skip "G2 no netdev named dsa (OK: this kernel exposes DSA user ports, not necessarily a dsa master name)"
+fi
+ip link show br0 2>/dev/null | grep -q UP && pass "G2 br0 UP" || warn "G2 br0 not UP"
+
+for p in node1 node2 node3 node4 ge0 ge1; do
+	if ip link show "$p" >/dev/null 2>&1; then
+		master=$(netdev_master "$p")
+		[ "$master" = br0 ] && pass "G3 $p enslaved to br0" || warn "G3 $p master=${master:-none} (expected br0)"
+	fi
+done
+
+for p in ge1 dsa eth0 end0; do
+	if ip link show "$p" >/dev/null 2>&1; then
+		speed=$(cat "/sys/class/net/$p/speed" 2>/dev/null || echo ?)
+		info "G4 $p speed=${speed}Mb/s"
+	fi
+done
+
+if command -v bridge >/dev/null 2>&1; then
+	bridge_detail=$(bridge -d link show 2>/dev/null || true)
+	if printf '%s\n' "$bridge_detail" | grep -qi offload; then
+		pass "G5 bridge link reports offload marker"
+	else
+		skip "G5 bridge link has no visible offload marker (often not exposed by this kernel/iproute2)"
+	fi
+
+	if dmesg 2>/dev/null | grep -qiE 'rtl8365mb.*bridge.*(fail|error)|dsa.*bridge.*(fail|error)'; then
+		fail "G5 bridge offload-related error in dmesg"
+	else
+		pass "G5 no bridge offload-related errors in dmesg"
+	fi
+
+	fdb_detail=$(bridge -d fdb show br br0 2>/dev/null || bridge -d fdb show 2>/dev/null || true)
+	if printf '%s\n' "$fdb_detail" | grep -qi offload; then
+		pass "G5 bridge FDB reports offloaded entries"
+	else
+		info "G5 no offloaded FDB entries visible yet (generate traffic, then rerun bridge -d fdb show br br0)"
+	fi
+else
+	skip "G5 bridge command missing; cannot inspect bridge offload markers"
+fi
 
 section "Done"
 info "Full log: run with: sh $0 [--mac ADDR] 2>&1 | tee $REPORT"
