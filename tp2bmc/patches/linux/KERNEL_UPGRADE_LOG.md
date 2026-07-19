@@ -134,18 +134,18 @@ Production retains **0001** only unless bench shows regressions without 0002–0
 - **`tpi-i2c-smi-arbiter`** / shared PE12/PE13 — TP2-only
 - **`realtek-smi-i2c`** — we are dropping this path
 
-### Mode 4 gap — VLAN DB not applied to LAG members
+### Mode 4 — VLAN DB on LAG members (fixed in `0003`)
 
 `realtek_forward` VLAN offload targets **DSA user ports in the bridge**.
-With `bond0` on `br0`, `ge0`/`ge1` are bond slaves (not bridge members), so
-`port_vlan_add` never programs the ASIC trunk ports. Linux still tags on
-`bond0` (CPU path); HW can also forward **untagged PVID 1** → native LAN
-DHCP races VLAN DHCP (Mode 3 flat trunk is fine).
+With `bond0` on `br0`, `ge0`/`ge1` are bond slaves, so `port_vlan_add` never
+ran for the ASIC trunk ports (Mode 3 flat `ge0` trunk was fine; Mode 4 leaked
+untagged native DHCP alongside tagged VLAN DHCP).
 
-**Fix direction:** in `0003` lag bridge fixup (and on VLAN add/del while LAG
-active), mirror `bridge vlan` for `bond0` onto each lag member via the
-existing `rtl8365mb` VLAN table helpers (PVID untagged + tagged members),
-same membership Mode 3 applies to `ge0`.
+**Fix in `0003`:** `rtl8365mb_lag_sync_uplink_vlans()` mirrors `bond0`’s bridge
+VLAN DB onto each lag member via `port_vlan_filtering` + `port_vlan_add`,
+called from lag refresh and `rtl8365mb_lag_bridge_fixup_refresh()` (after
+`tp2-net-config` applies VLANs). Validate with LAN DHCP enabled: nodes must
+get only `.10.x`/`.20.x`; `tcpdump -ni lagg0` must not see untagged node DHCP.
 
 ### Adoption checklist (run when series appears in `git tag v6.x`)
 
