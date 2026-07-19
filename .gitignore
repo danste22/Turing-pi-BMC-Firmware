@@ -10,3 +10,4 @@ tmp
 # Local development notes (post-d9c55b7 docs, vendor PDFs, patch audits).
 dev-docs/
 tp2bmc/patches/linux/scripts/
+.patch-work

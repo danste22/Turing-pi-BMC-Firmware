@@ -3,6 +3,8 @@
 Maintainer notes for Linux **6.18.33** (Buildroot `tp2bmc_defconfig`).  
 Patch inventory: `scripts/kernel-patch-tool.sh inventory`.
 
+**See also:** [`dev-docs/tp2-network-uboot-kernel.md`](../../../dev-docs/tp2-network-uboot-kernel.md) — U-Boot vs kernel network split, SMI migration gap, open U-Boot follow-ups.
+
 ---
 
 ## SMI mux — production status (2026-07-02)
@@ -60,42 +62,40 @@ PoC defconfig (`linux_smi_mux_poc_defconfig`, `tp2bmc_smi_mux_poc_defconfig`) �
 
 ### Phase D — patch directories — **DONE**
 
-#### `patches/linux/tpi-smi-mux/` (0001–0006)
+#### `patches/linux/tpi-smi-mux/` (0001–0003)
 
 | Patch | Purpose | Production |
 |-------|---------|------------|
 | 0001 | DT binding arbiter | **KEEP** (until upstream binding) |
-| 0002 | arbiter driver | **KEEP** (TP2-specific) |
-| 0003 | realtek-smi bracket | **KEEP** |
-| 0004 | shared-pin probe order | **KEEP** |
-| 0005 | ctl_dev = I²C platform parent | **KEEP** |
-| 0006 | release I²C pins before GPIO | **KEEP** |
+| 0002 | arbiter driver (incl. shared-pin probe / pinctrl / pin release formerly 0004–0006) | **KEEP** (TP2-specific) |
+| 0003 | realtek-smi shared-bus bracket | **KEEP** |
+
+**Removed from tree:** former `0004`–`0006` (folded into `0001`–`0003`). PoC DTS/defconfigs/scripts dropped.
 
 Add directory to `BR2_LINUX_KERNEL_PATCH` in `tp2bmc_defconfig`.  
 Long-term: **SUBMIT** arbiter + binding upstream (optional).
 
 #### `patches/linux/net-dsa/`
 
-| Patch | Purpose | Now (6.18.33 prod) | After `realtek_forward` merge |
-|-------|---------|-------------------|------------------------------|
-| 0001 | `tag_rtl8_4` REASON codes | **KEEP** | **REPLACE** — tag part accepted upstream separately (see monitor log) |
-| 0002 | `i2c_addr` in variant | **DROP** with I²C switch | **DROP** |
-| 0003 | RTL8370MB-CG `0x6368/0x0010` | **KEEP** | **KEEP** until upstream adds chip row · **SUBMIT** |
-| 0004 | `realtek-smi-i2c` transport | **DROP** with I²C switch | **DROP** |
-| 0005 | bridge offload (Turing minimal) | **KEEP** | **REPLACE** by upstream series (see below) |
-| 0006 | NOSTART doc for smi-i2c | **DROP** with 0004 | **DROP** |
+| Patch | Purpose | Production |
+|-------|---------|------------|
+| 0001 | Backport `realtek_forward` through net-next `660a9e399ab0`: bridge, FDB, VLAN, bridge flags, `tag_rtl8_4` REASON handling | **KEEP** until shipped kernel includes the series |
+| 0002 | RTL8370MB-CG `0x6368/0x0010` chip row | **KEEP** until upstream adds chip row · **SUBMIT** |
+| 0003 | HW LAG/trunk offload (`port_lag_*`, dumb-mode trunk) + `bond0`/`br0` uplink fixup (isolation, FDB CPU→lag remap, multicast `offload_fwd_mark`) | **KEEP** until upstream adds Realtek LAG + bond bridge egress |
+
+**Removed from tree (superseded — do not re-add):** `0001-net-dsa-tag_rtl8_4-*` (in backport `0001`), old `0002` i2c_addr, duplicate `0003` chip row, `0004` RTK-over-I²C, old `0005` bridge offload, `0006` smi-i2c NOSTART doc, split LAG+fixup patches (now single `0003`).
 
 #### `patches/linux/i2c/` (mv64xxx)
 
 | Patch | Purpose | Production SMI |
 |-------|---------|----------------|
 | 0001 | clear bus errors before xfer | **KEEP** — EEPROM/RTC robustness |
-| 0002 | clean up private struct | **DROP** if only needed for 0003–0005 chain |
-| 0003 | FSM refactor | **DROP** if only needed for NOSTART |
-| 0004 | continue after read | **DROP** if only needed for NOSTART |
-| 0005 | `I2C_FUNC_NOSTART` / EFR | **DROP** — only for RTK-over-I²C switch |
+| 0002 | clean up private struct | **DROPPED** — only needed for removed NOSTART chain |
+| 0003 | FSM refactor | **DROPPED** — only needed for removed NOSTART chain |
+| 0004 | continue after read | **DROPPED** — only needed for removed NOSTART chain |
+| 0005 | `I2C_FUNC_NOSTART` / EFR | **DROPPED** — only for removed RTK-over-I²C switch |
 
-**Target:** retain **0001** only unless bench shows regressions without 0002–0004.
+Production retains **0001** only unless bench shows regressions without 0002–0004.
 
 #### Unchanged patch sets
 
@@ -105,7 +105,7 @@ Long-term: **SUBMIT** arbiter + binding upstream (optional).
 
 ## Upstream monitor — `realtek_forward` (bridge / VLAN / FDB offload)
 
-**Watch this series.** When it lands in a kernel version we ship, adopt it and drop local **0005** (and likely **0001**).
+**Backported locally.** When it lands in a kernel version we ship, drop local `net-dsa/0001` and keep only the RTL8370MB-CG chip row if still missing upstream.
 
 | Field | Value |
 |-------|--------|
@@ -116,20 +116,21 @@ Long-term: **SUBMIT** arbiter + binding upstream (optional).
 | v1 link | https://patch.msgid.link/20260331-realtek_forward-v1-0-44fb63033b7e@gmail.com |
 | Latest tracked | **v13** (2026-06-06) |
 | LWN summary | https://lwn.net/Articles/1076755/ |
-| Target tree | `linux-net-next` → expect **6.19+** (not in 6.18.33 mainline) |
+| Target tree | `linux-net-next` → expect **6.19+** (not in 6.18.33 mainline; locally backported) |
 | change-id | `20260323-realtek_forward-1bac3a77c664` |
 
-### What upstream adds (vs our `net-dsa/0005`)
+### What the local backport adds (replacing old `net-dsa/0005`)
 
 - `port_bridge_{join,leave}` via **isolation masks + EFID** (no dot1x trap hack)
 - HW **FDB** + `fdb_isolation`, assisted learning on CPU port
 - HW **VLAN** filtering / PVID offload
 - Bridge port flags; driver split (`rtl8365mb_main/l2/vlan/table.c`, `rtl83xx` ops)
-- `tag_rtl8_4` updates (v2 changelog: tag patches submitted/accepted on their own)
+- `tag_rtl8_4` updates (accepted upstream separately and included in local backport)
 
 ### What upstream does **not** include (still ours)
 
-- **RTL8370MB-CG** chip table row (`0x6368` / `0x0010`) — keep **`net-dsa/0003`** or submit separately
+- **RTL8370MB-CG** chip table row (`0x6368` / `0x0010`) — keep **`net-dsa/0002`** or submit separately
+- **Hardware LAG / trunk** (`port_lag_join`) — keep **`net-dsa/0003`**; not in `realtek_forward`
 - **`tpi-i2c-smi-arbiter`** / shared PE12/PE13 — TP2-only
 - **`realtek-smi-i2c`** — we are dropping this path
 
@@ -137,9 +138,9 @@ Long-term: **SUBMIT** arbiter + binding upstream (optional).
 
 1. `kernel-history-tool.sh` / manual: confirm files in `drivers/net/dsa/realtek/`, `net/dsa/tag_rtl8_4.c` match series.
 2. Bump `BR2_LINUX_KERNEL_CUSTOM_VERSION_VALUE` to that release.
-3. **Remove** `net-dsa/0005-net-dsa-rtl8365mb-implement-bridge-offload.patch`.
-4. **Remove** `net-dsa/0001-...` if `tag_rtl8_4` REASON/forward logic is in-tree.
-5. **Keep** `net-dsa/0003` until `chip_id == 0x6368` probe works without it.
+3. **Remove** local `net-dsa/0001-net-dsa-realtek-rtl8365mb-backport-bridge-fdb-vlan-offload.patch`.
+4. **Keep** local `net-dsa/0002` until `chip_id == 0x6368` probe works without it.
+5. Confirm `tag_rtl8_4` REASON/forward logic is in-tree before removing the backport.
 6. Rebuild; run regression: switch probe, `br0`, inter-node throughput (HW hairpin vs CPU), VLAN if used.
 7. Update **Monitor log** below with merge commit / kernel version.
 
@@ -147,6 +148,8 @@ Long-term: **SUBMIT** arbiter + binding upstream (optional).
 
 | Date | Kernel / tree | Series version | In mainline? | Local action |
 |------|---------------|----------------|--------------|--------------|
+| 2026-07-04 | 6.18.33 | HW LAG offload (`net-dsa/0003`) | **No** | `port_lag_*` + RTL8367C trunk tables for `ge0`+`ge1` bond |
+| 2026-07-03 | 6.18.33 | `realtek_forward` merged in net-next through `660a9e399ab0` | **No** | Backported locally as `net-dsa/0001`; old minimal `0005` dropped |
 | 2026-07-02 | 6.18.33 | `realtek_forward` v13 on net-next | **No** | Production SMI migration merged; keep `net-dsa/0001`+`0005` until upstream lands |
 
 **Next review:** when bumping past 6.18.x — grep upstream `rtl8365mb` for `port_bridge_join`, `rtl8365mb_l2.c`, `max_num_bridges`.
@@ -166,7 +169,7 @@ git grep -l port_bridge_join v6.19 -- drivers/net/dsa/realtek/
 2. ~~**Phase A**~~ — `linux_defconfig` + `tp2bmc_defconfig` patch path.
 3. ~~**Phase D**~~ — dropped `net-dsa` 0002, 0004, 0006; dropped `i2c` 0002–0005 (kept 0001).
 4. ~~**Phase C**~~ — single FIT/boot flow; PoC scripts/defconfigs removed.
-5. **Bench** (on hardware): EEPROM, RTC, all node ports, `br0` DHCP, optional cross-node `iperf` (CPU hairpin until `realtek_forward` merges).
+5. **Bench** (on hardware): EEPROM, RTC, all node ports, `br0` DHCP, cross-node `iperf`, FDB/VLAN lab checks.
 6. On next kernel bump: execute **Upstream monitor** adoption checklist below.
 
 ---

@@ -19,13 +19,6 @@ if [[ -n "${uboot_build}" ]]; then
 		"${BINARIES_DIR}/u-boot-sunxi-with-spl.bin"
 fi
 
-sdcard_img="${BINARIES_DIR}/tp2-bmc-firmware-sdcard.img"
-if [[ -f "${sdcard_img}" ]]; then
-	"${TP2BMC_DIR}/scripts/check_sdcard_install_image.sh" "${sdcard_img}"
-else
-	echo "WARN: missing ${sdcard_img} — SD install image not validated"
-fi
-
 create_sdcard() {
     rootpath=$(mktemp -d)
     gencfg="$1"
@@ -80,3 +73,12 @@ INITRAMFS_DIR=$STAGING_DIR/initramfs/install
 
 create_sdcard  "$BOARD_DIR/genimage.cfg" "$BOARD_DIR/install.scr"
 factory_sdcard
+
+sdcard_img="${BINARIES_DIR}/tp2-bmc-firmware-sdcard.img"
+rootfs_erofs="${BINARIES_DIR}/rootfs.erofs"
+if [[ -f "${sdcard_img}" ]]; then
+	"${TP2BMC_DIR}/scripts/check_sdcard_install_image.sh" \
+		"${sdcard_img}" 2 "${rootfs_erofs}"
+else
+	echo "WARN: missing ${sdcard_img} — SD install image not validated"
+fi

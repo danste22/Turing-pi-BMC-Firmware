@@ -1,9 +1,0 @@
-// SPDX-License-Identifier: GPL-2.0+
-// PoC: v2.5.2 + SMI profile mux on shared PE12/PE13 (see dev-docs/poc-smi-mux-pe12.md)
-/dts-v1/;
-#include "sun8i-t113s-turing-pi2-v2.5.2.dts"
-#include "sun8i-t113s-turing-pi2-smi-mux.dtsi"
-
-/ {
-	model = "Turing Pi 2 (v2.5.2 SMI mux PoC)";
-};
