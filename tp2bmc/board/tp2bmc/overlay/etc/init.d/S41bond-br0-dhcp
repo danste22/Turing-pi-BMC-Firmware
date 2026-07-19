@@ -1,0 +1,40 @@
+#!/bin/sh
+# After S40network: block until br0 has DHCP on the LACP bond profile.
+# udhcpc from ifup often forks to background after ~3 discovers; this finishes
+# boot with an address before login/getty.
+
+BOND_PROFILE=/etc/network/interfaces.d/10-bond-lacp
+
+case "$1" in
+start|"")
+	[ -f "$BOND_PROFILE" ] || exit 0
+
+	# Lease already obtained during ifup
+	if ip -4 addr show dev br0 2>/dev/null | grep -q 'inet '; then
+		exit 0
+	fi
+
+	[ -x /etc/network/tp2-bond-wait-lacp.sh ] && \
+		/etc/network/tp2-bond-wait-lacp.sh bond0 60
+
+	bridge link show dev bond0 2>/dev/null | grep -q 'master br0' || \
+		ip link set dev bond0 master br0 2>/dev/null || true
+
+	killall udhcpc 2>/dev/null || true
+	sleep 1
+
+	# Foreground first (-n); fall back to background if still no answer
+	if udhcpc -i br0 -x "hostname:$(hostname)" -t 20 -T 2 -n 2>/dev/null; then
+		exit 0
+	fi
+	udhcpc -b -R -p /var/run/udhcpc.br0.pid -i br0 -x "hostname:$(hostname)" -t 10 -T 2
+	;;
+stop)
+	;;
+*)
+	echo "Usage: $0 {start|stop}"
+	exit 1
+	;;
+esac
+
+exit 0

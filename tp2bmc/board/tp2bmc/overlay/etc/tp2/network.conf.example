@@ -1,0 +1,161 @@
+# TP2 BMC network configuration — single file for all modes.
+#
+# Copy, edit, apply:
+#   cp /etc/tp2/network.conf.example /etc/tp2/network.conf
+#   vi /etc/tp2/network.conf
+#   tp2-net-config apply
+#
+# Reset to factory flat br0:
+#   tp2-net-config reset
+#
+# Show current state:
+#   tp2-net-config show
+
+# --------------------------------------------------------------------------
+# [bridge] — br0 IP addressing
+# --------------------------------------------------------------------------
+
+[bridge]
+# IP addressing for br0:
+#   dhcp              run udhcpc on br0 (default)
+#   192.168.1.50/24   static IP (set gateway= and dns= below)
+#   none              no IP on br0 (manual)
+ip=dhcp
+
+# Static IP only:
+#gateway=192.168.1.1
+#dns=192.168.1.1
+
+# VLAN filtering — set automatically when [port.*] sections exist.
+# Force it on even without port rules:
+vlan_filtering=0
+
+# --------------------------------------------------------------------------
+# [bond] — ge0+ge1 bonding
+# --------------------------------------------------------------------------
+
+[bond]
+# 0 = ge0 and ge1 are direct br0 members (factory default)
+# 1 = bond ge0+ge1, attach bond0 to br0 instead
+enabled=0
+
+# Linux bonding mode (aliases accepted):
+#   802.3ad | lacp          HW LAG offload on RTL8370MB (needs LACP upstream)
+#   active-backup | ha      software failover, primary ge0
+#   balance-rr | rr         round-robin (software, lab use)
+#   balance-xor | xor       XOR hash (software)
+#   balance-tlb | tlb       adaptive TX load balancing
+#   balance-alb | alb       adaptive load balancing
+mode=802.3ad
+
+miimon=100
+
+# Hash policy for 802.3ad, balance-xor, balance-tlb, balance-alb:
+#   layer2 | layer2+3 | layer3+4 | encap2+3 | encap3+4
+# HW LAG offload: 802.3ad + layer2 or layer2+3 only.
+xmit_hash_policy=layer2+3
+
+# 802.3ad (LACP) options:
+lacp_rate=fast
+#lacp_timeout=60
+
+# active-backup (HA) options:
+#primary=ge0
+#primary_reselect=failure
+
+# Override bond slaves (default: ge0 ge1):
+#slaves=ge0 ge1
+
+# --------------------------------------------------------------------------
+# Per-port bridge VLAN — requires vlan_filtering (auto-enabled)
+# --------------------------------------------------------------------------
+# access  — one untagged VLAN (PVID)
+# trunk   — native VLAN untagged + additional tagged VLANs
+#
+# When bond.enabled=1, configure uplink VLAN on bond0 (not ge0/ge1).
+# Without any [port.*] sections all ports share VLAN 1 untagged (flat).
+
+# Example: node1 on VLAN 10
+#[port.node1]
+#mode=access
+#vlan=10
+
+# Example: node2 on VLAN 20
+#[port.node2]
+#mode=access
+#vlan=20
+
+# Example: uplink trunk (flat bridge, ge0+ge1 direct)
+#[port.ge0]
+#mode=trunk
+#native=1
+#vlans=10,20
+
+# Example: LACP uplink trunk (bond.enabled=1)
+#[port.bond0]
+#mode=trunk
+#native=1
+#vlans=10,20
+
+# --------------------------------------------------------------------------
+# 802.1Q subinterfaces (L3 on top of bond0 or any port)
+# --------------------------------------------------------------------------
+# Creates bond0.100, bond0.200 and brings them up.
+#[vlan.bond0]
+#ids=100,200
+#up=1
+
+# --------------------------------------------------------------------------
+# Preset configurations — uncomment ONE block below, then: tp2-net-config apply
+# --------------------------------------------------------------------------
+
+# --- Mode 1: Flat DHCP (factory default) ---
+# [bond]
+# enabled=0
+# [bridge]
+# ip=dhcp
+
+# --- Mode 2: LACP DHCP ---
+# [bond]
+# enabled=1
+# mode=802.3ad
+# [bridge]
+# ip=dhcp
+
+# --- Mode 2b: LACP static ---
+# [bond]
+# enabled=1
+# mode=802.3ad
+# [bridge]
+# ip=192.168.1.50/24
+# gateway=192.168.1.1
+# dns=192.168.1.1
+
+# --- Mode 3: VLAN per-node, flat uplink ---
+# [bond]
+# enabled=0
+# [port.node1]
+# mode=access
+# vlan=10
+# [port.node2]
+# mode=access
+# vlan=20
+# [port.ge0]
+# mode=trunk
+# native=1
+# vlans=10,20
+
+# --- Mode 4: VLAN per-node, LACP uplink ---
+# [bond]
+# enabled=1
+# mode=802.3ad
+# [port.node1]
+# mode=access
+# vlan=10
+# [port.node2]
+# mode=access
+# vlan=20
+# [port.bond0]
+# mode=trunk
+# native=1
+# vlans=10,20

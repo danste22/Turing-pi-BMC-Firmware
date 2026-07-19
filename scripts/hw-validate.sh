@@ -415,7 +415,18 @@ ip link show br0 2>/dev/null | grep -q UP && pass "G2 br0 UP" || warn "G2 br0 no
 for p in node1 node2 node3 node4 ge0 ge1; do
 	if ip link show "$p" >/dev/null 2>&1; then
 		master=$(netdev_master "$p")
-		[ "$master" = br0 ] && pass "G3 $p enslaved to br0" || warn "G3 $p master=${master:-none} (expected br0)"
+		if [ "$p" = ge0 ] || [ "$p" = ge1 ]; then
+			if [ -d /sys/class/net/bond0 ]; then
+				[ "$master" = bond0 ] && pass "G3 $p enslaved to bond0" \
+					|| warn "G3 $p master=${master:-none} (expected bond0 with LACP profile)"
+			else
+				[ "$master" = br0 ] && pass "G3 $p enslaved to br0" \
+					|| warn "G3 $p master=${master:-none} (expected br0)"
+			fi
+		else
+			[ "$master" = br0 ] && pass "G3 $p enslaved to br0" \
+				|| warn "G3 $p master=${master:-none} (expected br0)"
+		fi
 	fi
 done
 
@@ -434,10 +445,41 @@ if command -v bridge >/dev/null 2>&1; then
 		skip "G5 bridge link has no visible offload marker (often not exposed by this kernel/iproute2)"
 	fi
 
+	if dmesg 2>/dev/null | grep -qiE 'rtl8365mb.*(lag|trunk).*(fail|error)|port_lag.*EOPNOTSUPP'; then
+		fail "G5 LAG offload-related error in dmesg"
+	elif [ -d "/sys/class/net/bond0" ] && [ -r /proc/net/bonding/bond0 ]; then
+		if grep -q "802.3ad" /proc/net/bonding/bond0 2>/dev/null \
+		   && grep -q "ge0" /proc/net/bonding/bond0 2>/dev/null \
+		   && grep -q "ge1" /proc/net/bonding/bond0 2>/dev/null; then
+			if dmesg 2>/dev/null | grep -q "LAG bridge uplink fixup"; then
+				pass "G5 bond0 802.3ad ge0+ge1 + LAG bridge uplink fixup (0003)"
+			else
+				warn "G5 bond0 802.3ad ge0+ge1 but no LAG bridge uplink fixup in dmesg — node WAN may cap at ~100M via eth0; rebuild with net-dsa/0003"
+			fi
+		else
+			warn "G5 bond0 present but not 802.3ad ge0+ge1 (HW LAG not exercised)"
+		fi
+	else
+		info "G5 no bond0 configured (HW LAG not exercised; see README bond0+br0 cookbook)"
+	fi
+
 	if dmesg 2>/dev/null | grep -qiE 'rtl8365mb.*bridge.*(fail|error)|dsa.*bridge.*(fail|error)'; then
 		fail "G5 bridge offload-related error in dmesg"
 	else
 		pass "G5 no bridge offload-related errors in dmesg"
+	fi
+
+	if [ -r /sys/class/net/br0/bridge/vlan_filtering ]; then
+		vlan_filtering=$(cat /sys/class/net/br0/bridge/vlan_filtering 2>/dev/null)
+		if [ "$vlan_filtering" = 1 ]; then
+			if [ -d /sys/class/net/bond0 ]; then
+				warn "G5 br0 vlan_filtering=1 with bond0 — VLAN uplink via bond not validated; see README"
+			else
+				pass "G5 br0 vlan_filtering=1 (VLAN/PVID offload path; flat ge0/ge1 on br0)"
+			fi
+		else
+			info "G5 br0 vlan_filtering=0 (shipped default; VLAN offload not active)"
+		fi
 	fi
 
 	fdb_detail=$(bridge -d fdb show br br0 2>/dev/null || bridge -d fdb show 2>/dev/null || true)
@@ -448,6 +490,33 @@ if command -v bridge >/dev/null 2>&1; then
 	fi
 else
 	skip "G5 bridge command missing; cannot inspect bridge offload markers"
+fi
+
+section "G6 — bond uplink hairpin (needs powered node + traffic)"
+if [ -d /sys/class/net/bond0 ] && grep -q "802.3ad" /proc/net/bonding/bond0 2>/dev/null; then
+	eth0_speed=$(cat /sys/class/net/eth0/speed 2>/dev/null || echo ?)
+	info "G6 eth0 (CPU port) speed=${eth0_speed}Mb/s — must not carry switched node WAN traffic"
+	if [ -r /var/run/tp2-uplink-test-eth0-delta ]; then
+		delta=$(cat /var/run/tp2-uplink-test-eth0-delta 2>/dev/null || echo 0)
+		max=${UPLINK_ETH0_DELTA_MAX:-67108864}
+		if [ "$delta" -gt "$max" ] 2>/dev/null; then
+			fail "G6 eth0 hairpin delta=${delta} bytes (>${max}) — node WAN via CPU ~100M; need net-dsa/0003"
+		else
+			pass "G6 eth0 hairpin delta=${delta} bytes (uplink likely ASIC-switched)"
+		fi
+	elif [ "${UPLINK_HAIRPIN_TEST:-0}" = 1 ] && [ -x /usr/share/tp2/uplink-hairpin-test.sh ]; then
+		info "G6 running uplink-hairpin-test (start node iperf during wait)..."
+		if /usr/share/tp2/uplink-hairpin-test.sh; then
+			pass "G6 uplink-hairpin-test passed"
+		else
+			fail "G6 uplink-hairpin-test failed"
+		fi
+	else
+		skip "G6 run: UPLINK_HAIRPIN_TEST=1 sh hw-validate.sh (node: iperf3 -c <gw> -t10 during wait) or sh /usr/share/tp2/uplink-hairpin-test.sh"
+		info "G6 expect node iperf ~900+ Mbit/s; ~88 Mbit/s = eth0 hairpin before 0004"
+	fi
+else
+	skip "G6 no bond0 802.3ad — uplink hairpin test N/A (flat br0 uses ge0/ge1 on bridge)"
 fi
 
 section "Done"

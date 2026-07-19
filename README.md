@@ -432,11 +432,28 @@ Port labels come from `ethernet_switch` / `ethernet-ports` in
 
 The shipped image attaches **node1…node4**, **ge0**, and **ge1** to **`br0`**
 ([`overlay/etc/network/interfaces`](tp2bmc/board/tp2bmc/overlay/etc/network/interfaces)).
-The kernel enables **bridge VLAN filtering**, **802.1Q**, and **software bonding**;
-**bridge offload** forwards among `br0` members in hardware where the driver supports
-it. **Switch-ASIC VLAN table programming** and **LAG/trunk offload** are **parked**
-on this firmware line — use the commands below for **software** VLAN/bond experiments
-only, not as a substitute for future product UI work.
+The kernel enables **bridge VLAN filtering**, **802.1Q**, and **bonding**
+(`CONFIG_BONDING=y`); the local `rtl8365mb` backport offloads bridge membership,
+FDB entries, VLAN/PVID tables, bridge port flags, and **hardware LAG/trunk**
+(`ge0`+`ge1` via `port_lag_*`) to the switch ASIC.
+
+**Important — CPU port vs node traffic**
+
+| Path | Hardware | Typical speed |
+| ---- | -------- | ------------- |
+| **node\* ↔ node\*** on `br0` | Switch ASIC | ~1 Gbit/s |
+| **BMC-originated** traffic (`eth0` / RMII) | CPU port | **≤ ~100 Mbit/s** |
+| **node\* → WAN** flat `br0` (`ge0`/`ge1` on bridge) | Switch ASIC | ~1 Gbit/s per flow |
+| **node\* → WAN** bond profile (`bond0` on `br0`) | Switch ASIC **after patch `net-dsa/0003`** | ~1 Gbit/s per flow; **~2 Gbit/s** aggregate multi-flow |
+
+Earlier bond-only images programmed LACP + HW LAG but left node→WAN traffic
+**hairpinning through `eth0`** (~88 Mbit/s). Patch
+[`0003-net-dsa-rtl8365mb-hw-lag-bridge-uplink.patch`](tp2bmc/patches/linux/net-dsa/0003-net-dsa-rtl8365mb-hw-lag-bridge-uplink.patch)
+extends isolation + FDB remapping so `bond0`+`br0` uses the ASIC path. **Reflash
+kernel after pulling this patch** and re-run the uplink validation below.
+
+LACP control frames stay in the kernel bonding driver; data frames hash across
+`ge0`+`ge1` in hardware once the trunk + bridge fixup is active.
 
 Tools: **`ip`** and **`bridge`** from **iproute2** (`BR2_PACKAGE_IPROUTE2`). Not
 available through the Web UI — lab / SSH use only. Changing bridges or bonds **will
@@ -448,35 +465,210 @@ disrupt** the default `br0` uplink until you restore [`interfaces`](tp2bmc/board
 ip -br link
 bridge link
 bridge vlan show dev br0
+# VLAN offload lab only (not the shipped default):
+ip link set br0 type bridge vlan_filtering 1
 cat /sys/class/net/br0/bridge/vlan_filtering   # expect 1
 ```
 
-**VLAN-aware bridge (example)** — isolate a test VID on one node port:
+#### `tp2-net-config` — single-command network mode switching
+
+All four network modes are controlled by **one config file**
+[`/etc/tp2/network.conf`](tp2bmc/board/tp2bmc/overlay/etc/tp2/network.conf.example)
+and **one command**:
 
 ```sh
-# Example: PVID 100 untagged on node2 only; other ports unchanged until you add rules.
-bridge vlan add dev node2 vid 100 pvid untagged
-bridge vlan show dev br0
-# Revert:
-bridge vlan del dev node2 vid 100
+cp /etc/tp2/network.conf.example /etc/tp2/network.conf
+vi /etc/tp2/network.conf    # edit to desired mode
+tp2-net-config apply         # bond + VLAN + IP + persist for reboot
+tp2-net-config show          # verify
+tp2-net-config reset         # revert to flat br0 + DHCP
 ```
 
-**Software LACP bond (example)** — only after removing **ge0** / **ge1** from `br0`
-(or on a bench unit). Requires `CONFIG_BONDING=y` (enabled in
-[`linux_defconfig`](tp2bmc/board/tp2bmc/linux_defconfig)).
+##### Mode 1 — Flat (factory default)
+
+```ini
+[bond]
+enabled=0
+[bridge]
+ip=dhcp
+```
+
+All six switch ports (`node1`–`node4` + `ge0` + `ge1`) are direct `br0`
+members. Single GE cable, no bond. DHCP on `br0`.
+
+| OPNsense side | BMC side |
+| ------------- | -------- |
+| LAN on a single `igbN` port | `tp2-net-config apply` or `tp2-net-config reset` |
+
+##### Mode 2 — LACP bond (DHCP or static)
+
+```ini
+[bond]
+enabled=1
+mode=802.3ad
+[bridge]
+ip=dhcp
+# static alternative:
+# ip=192.168.1.50/24
+# gateway=192.168.1.1
+# dns=192.168.1.1
+```
+
+`ge0`+`ge1` bonded into `bond0` (802.3ad, HW LAG offload). `bond0` +
+`node1`–`node4` join `br0`. Requires an **LACP peer** upstream. Kernel patch
+[`net-dsa/0003`](tp2bmc/patches/linux/net-dsa/0003-net-dsa-rtl8365mb-hw-lag-bridge-uplink.patch)
+enables HW LAG offload + node→WAN ASIC forwarding.
+
+| OPNsense side | BMC side |
+| ------------- | -------- |
+| LAGG (LACP) on `igb0` + `igb2`, LAN assigned to `lagg0` | `tp2-net-config apply` |
+
+##### Mode 3 — VLAN per-node, flat uplink
+
+```ini
+[bond]
+enabled=0
+[port.node1]
+mode=access
+vlan=10
+[port.node2]
+mode=access
+vlan=20
+[port.ge0]
+mode=trunk
+native=1
+vlans=10,20
+```
+
+Bridge VLAN filtering auto-enabled. Each `[port.*]` section sets access (single
+untagged VLAN) or trunk (native + tagged VLANs). Upstream must trunk the same
+VLANs.
+
+| OPNsense side | BMC side |
+| ------------- | -------- |
+| VLANs 10, 20 on `igbN`, assign interfaces per VLAN | `tp2-net-config apply` |
+
+##### Mode 4 — VLAN per-node, LACP uplink
+
+```ini
+[bond]
+enabled=1
+mode=802.3ad
+[port.node1]
+mode=access
+vlan=10
+[port.node2]
+mode=access
+vlan=20
+[port.bond0]
+mode=trunk
+native=1
+vlans=10,20
+```
+
+LACP bond + per-port VLAN isolation. Use `[port.bond0]` for the uplink trunk
+(not `ge0`/`ge1` individually).
+
+| OPNsense side | BMC side |
+| ------------- | -------- |
+| LAGG (LACP) on `igb0`+`igb2`, VLANs on `lagg0`, interfaces per VLAN | `tp2-net-config apply` |
+
+##### What `tp2-net-config apply` does
+
+1. Tears down existing `br0` and bond
+2. Creates bond (if `enabled=1`), enslaves `ge0`+`ge1`
+3. Attaches ports to `br0`, enables VLAN filtering if any `[port.*]` sections
+4. Waits for LACP convergence + runs kernel LAG bridge fixup refresh
+5. Configures IP addressing (DHCP / static / none)
+6. Writes matching `interfaces.d/` profile for reboot persistence
+
+**VLAN + bond caveat:** VLAN/PVID offload applies to DSA ports (`node*`, and
+`ge0`/`ge1` when direct `br0` members). With `bond0` on `br0`, `ge0`/`ge1` are
+bond slaves — not bridge members in ASIC VLAN tables. Node-side access VLANs
+offload in HW, but **egress VLAN tagging across bond0+br0 is not fully
+validated** — prefer flat L2 or keep VLANs on node ports only until extended.
+
+##### Verification after `tp2-net-config apply` (LACP mode)
 
 ```sh
-ip link set ge0 down
-ip link set ge1 down
-ip link add bond0 type bond mode 802.3ad miimon 100
-ip link set ge0 master bond0
-ip link set ge1 master bond0
-ip link set bond0 up
-ip link set ge0 up
-ip link set ge1 up
+tp2-net-config show                              # full state dump
+cat /proc/net/bonding/bond0                      # 802.3ad, both slaves active
+bridge link                                      # node* + bond0 on br0
+dmesg | grep 'LAG bridge uplink fixup'           # HW offload active
+# On a powered node: arping -c 3 -I eth0 <gateway>  — expect replies
+sh /usr/share/tp2/uplink-hairpin-test.sh <gateway>  # eth0 counters stay flat
+```
+
+Revert to flat: `tp2-net-config reset` (removes bond, restores `00-br0-flat`,
+starts DHCP).
+
+**Internal plumbing:**
+[`tp2-bond-up.sh`](tp2bmc/board/tp2bmc/overlay/etc/network/tp2-bond-up.sh) creates bond0 via explicit `ip link add` (ifupdown-ng `use bond` is unreliable on this platform).
+[`tp2-bond-wait-lacp.sh`](tp2bmc/board/tp2bmc/overlay/etc/network/tp2-bond-wait-lacp.sh) waits for partner MAC on `br0` pre-up.
+[`tp2-lag-bridge-fixup-refresh.sh`](tp2bmc/board/tp2bmc/overlay/etc/network/tp2-lag-bridge-fixup-refresh.sh) re-triggers the kernel LAG bridge isolation fixup.
+[`S41bond-br0-dhcp`](tp2bmc/board/tp2bmc/overlay/etc/init.d/S41bond-br0-dhcp) blocks boot until `br0` has a DHCP lease if udhcpc forked early.
+
+#### OPNsense LACP peer (igb0 + igb2 → LAN)
+
+When the upstream firewall is **OPNsense**, create a **LAGG** (FreeBSD `lagg(4)`) in **LACP** mode and assign **LAN** to it. Cable **ge0** → OPNsense **igb0**, **ge1** → **igb2** (same switch domain or direct).
+
+**1. Create LAGG**
+
+| Field | Value |
+| ----- | ----- |
+| Interfaces → Other Types → **LAGG** → Add | |
+| Protocol | **LACP (IEEE 802.3ad)** |
+| Members | **igb0**, **igb2** |
+| LACP timeout | **Fast** (matches BMC `lacp_rate fast`) |
+| Description | e.g. `LAN-LACP-TP2` |
+
+**2. Reassign LAN**
+
+| Step | Action |
+| ---- | ------ |
+| Interfaces → **Assignments** | Set **LAN** to **LAGG0** (not igb0 alone) |
+| Remove LAN from igb0/igb2 | Those ports must be LAGG members only |
+
+Keep the same LAN IP/subnet/DHCP pool the BMC expects (or expand DHCP for `br0`).
+
+**3. Interface settings on LAGG0 (LAN)**
+
+- **Enable** the interface
+- **IPv4**: static or DHCP server for BMC `br0` (same subnet as before)
+- **Block private networks** / bogons: adjust if BMC is on RFC1918 LAN
+
+**4. Verify LAGG**
+
+Shell on OPNsense (`ifconfig`):
+
+```sh
+ifconfig lagg0
+# laggproto lacp, laggport igb0 laggport igb2, status active on both
+
+sysctl net.link.lagg.lacp.debug   # optional troubleshooting
+```
+
+Web UI: **Interfaces → LAGG →** both ports should show **ACTIVE** once BMC bond is up and cabled.
+
+**5. Match with BMC**
+
+| Side | Setting |
+| ---- | ------- |
+| BMC `bond0` | `802.3ad`, `xmit_hash_policy layer2+3`, `lacp_rate fast` |
+| OPNsense `lagg0` | `lacp`, fast timeout |
+| Cabling | ge0 ↔ igb0, ge1 ↔ igb2 (consistent partner ports) |
+
+On BMC after `ifup -f bond0`:
+
+```sh
 cat /proc/net/bonding/bond0
-# Teardown: ip link set ge0 nomaster; ip link set ge1 nomaster; ip link del bond0
+# Partner MAC should not be 00:00:00:00:00:00
+# Both ge0 and ge1 listed as slave interfaces
 ```
+
+**6. Optional VLANs later**
+
+If you add VLAN 10/20/30 on node ports, create matching VLANs on OPNsense (**Interfaces → VLANs** on `lagg0`, or VLAN parent = `lagg0`) and trunk them on the LAGG — only needed when moving beyond flat-L2 bond testing.
 
 **Packet capture** — use **`tcpdump -i br0`**, **`tcpdump -i ge0`**, or
 **`tcpdump -i nodeN`**, not the abstract **`dsa`** master (Buildroot **libpcap 1.10.5**

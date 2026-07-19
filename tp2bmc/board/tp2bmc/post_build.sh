@@ -69,8 +69,43 @@ for dtb in "${fit_dtbs[@]}"; do
 	fi
 	install -D -m 0644 "$src" "${BINARIES_DIR}/${dtb}"
 done
-if [[ ! -f "${BINARIES_DIR}/zImage" ]]; then
-	install -D -m 0644 "${linux_bdir}/arch/arm/boot/zImage" "${BINARIES_DIR}/zImage"
+# Always refresh: BINARIES_DIR/zImage survives make linux-dirclean/linux and
+# would otherwise leave turing-pi2.itb packing a stale kernel.
+install -D -m 0644 "${linux_bdir}/arch/arm/boot/zImage" "${BINARIES_DIR}/zImage"
+
+# LAG fixup helpers are static — use source + .o/vmlinux strings (not nm/zImage).
+main_c="${linux_bdir}/drivers/net/dsa/realtek/rtl8365mb_main.c"
+lag_c="${linux_bdir}/drivers/net/dsa/realtek/rtl8365mb_lag.c"
+lag_o="${linux_bdir}/drivers/net/dsa/realtek/rtl8365mb_lag.o"
+linux_stamp="${linux_bdir}/.stamp_built"
+vmlinux="${linux_bdir}/vmlinux"
+
+if ! grep -q 'rtl8365mb_lag_fdb_remap_cpu' "$main_c" 2>/dev/null; then
+	echo "FAIL: net-dsa/0003 LAG fixup not applied to kernel tree" >&2
+	exit 1
+fi
+if ! grep -q 'cpu 0x%x' "$lag_c" 2>/dev/null; then
+	echo "FAIL: net-dsa/0003 LAG bridge uplink fixup missing in kernel tree" >&2
+	exit 1
+fi
+for f in "$main_c" "$lag_c"; do
+	if [[ -f "$linux_stamp" && "$f" -nt "$linux_stamp" ]]; then
+		echo "FAIL: kernel sources newer than last build — run: make linux-dirclean linux" >&2
+		exit 1
+	fi
+done
+
+lag_fixup_ok=0
+for blob in "$vmlinux" "$lag_o"; do
+	if [[ -f "$blob" ]] && strings "$blob" 2>/dev/null | grep -qF 'cpu 0x%x'; then
+		lag_fixup_ok=1
+		break
+	fi
+done
+if [[ "$lag_fixup_ok" -ne 1 ]]; then
+	echo "FAIL: LAG bridge uplink fixup not in built kernel (expect 'cpu 0x%x' in lag driver)" >&2
+	echo "      Run: make linux-dirclean linux && make target-finalize rootfs-erofs" >&2
+	exit 1
 fi
 
 cp "$PWD"/*.its "$BINARIES_DIR/"
@@ -132,6 +167,11 @@ find "${TARGET_DIR}/etc/init.d" -maxdepth 1 -name 'S*' -exec chmod 755 {} + 2>/d
 # Factory MAC helpers (overlay may lose +x depending on host checkout).
 chmod 755 "${TARGET_DIR}/etc/network/apply_bmc_mac.sh" 2>/dev/null || true
 chmod 755 "${TARGET_DIR}/etc/network/set_br0_mac_pre_dhcp.sh" 2>/dev/null || true
+chmod 755 "${TARGET_DIR}/etc/network/tp2-bond-up.sh" 2>/dev/null || true
+chmod 755 "${TARGET_DIR}/etc/network/tp2-bond-down.sh" 2>/dev/null || true
+chmod 755 "${TARGET_DIR}/etc/network/tp2-bond-wait-lacp.sh" 2>/dev/null || true
+chmod 755 "${TARGET_DIR}/etc/network/install-bond-lacp-profile.sh" 2>/dev/null || true
+chmod 755 "${TARGET_DIR}/usr/share/tp2/uplink-hairpin-test.sh" 2>/dev/null || true
 
 # #225: mdev hooks for /dev/disk/by-tpi/nodeN (block + USB hub port remove).
 mdev_script="mdev-tpi-msd-symlink"

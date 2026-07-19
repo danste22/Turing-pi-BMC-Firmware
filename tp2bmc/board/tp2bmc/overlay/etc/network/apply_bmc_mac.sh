@@ -19,6 +19,10 @@ log() {
 	logger -t "${BMC_MAC_LOG_TAG}" "$*" 2>/dev/null || true
 }
 
+bond_profile_active() {
+	[ -f /etc/network/interfaces.d/10-bond-lacp ]
+}
+
 # Six bytes (stdin or file redirect) -> aa:bb:cc:dd:ee:ff (BusyBox od; no hexdump -e).
 bytes_to_mac() {
 	# od -An -tx1 prints e.g. " c4 ff 84 10 00 ba"
@@ -56,6 +60,11 @@ read_bmc_mac() {
 set_iface_mac() {
 	_iface=$1
 	_mac=$2
+	# Bond profile: never touch br0 (down/up releases bond0 slaves from the bridge).
+	if [ "$_iface" = br0 ] && bond_profile_active; then
+		log "skip br0 MAC set (bond profile)"
+		return 0
+	fi
 	if ip link set dev "$_iface" address "$_mac" 2>/dev/null; then
 		return 0
 	fi
@@ -95,6 +104,10 @@ apply_bmc_mac() {
 	_ok=0
 	for iface in "$@"; do
 		[ -n "$iface" ] || continue
+		if [ "$iface" = br0 ] && bond_profile_active; then
+			log "skip br0 (bond profile; MAC from bond0)"
+			continue
+		fi
 		if ! ip link show "$iface" >/dev/null 2>&1; then
 			log "skip $iface (no such netdev)"
 			continue

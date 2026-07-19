@@ -1,1 +1,1 @@
-exec screen /dev/ttyS3 115200
+exec screen -S $(basename "$0") /dev/ttyS3 115200

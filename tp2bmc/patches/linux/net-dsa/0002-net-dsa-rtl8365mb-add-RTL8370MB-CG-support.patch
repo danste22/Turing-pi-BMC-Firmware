@@ -1,0 +1,36 @@
+From: Sam Edwards <CFSworks@gmail.com>
+Subject: [PATCH 2/2] net: dsa: rtl8365mb: add RTL8370MB-CG support
+
+Add the RTL8370MB-CG chip row used by Turing Pi 2 v2.5+ boards.
+
+Signed-off-by: Sam Edwards <CFSworks@gmail.com>
+---
+diff --git a/drivers/net/dsa/realtek/rtl8365mb_main.c b/drivers/net/dsa/realtek/rtl8365mb_main.c
+index 5ac091b..e33864d 100644
+--- a/drivers/net/dsa/realtek/rtl8365mb_main.c
++++ b/drivers/net/dsa/realtek/rtl8365mb_main.c
+@@ -652,6 +652,24 @@ static const struct rtl8365mb_chip_info rtl8365mb_chip_infos[] = {
+ 		.jam_table = rtl8365mb_init_jam_8365mb_vc,
+ 		.jam_size = ARRAY_SIZE(rtl8365mb_init_jam_8365mb_vc),
+ 	},
++	{
++		/*
++		 * 8-port + 1 CPU variant used on the Turing Pi 2 cluster
++		 * board (v2.5 and later). Reuses the RTL8367-class init
++		 * jam table; ext-ints sit on ports 8 and 9.
++		 */
++		.name = "RTL8370MB-CG",
++		.chip_id = 0x6368,
++		.chip_ver = 0x0010,
++		.extints = {
++			{ 8, 1, PHY_INTF(MII) | PHY_INTF(TMII) |
++				PHY_INTF(RMII) | PHY_INTF(RGMII) },
++			{ 9, 2, PHY_INTF(MII) | PHY_INTF(TMII) |
++				PHY_INTF(RMII) | PHY_INTF(RGMII) },
++		},
++		.jam_table = rtl8365mb_init_jam_8365mb_vc,
++		.jam_size = ARRAY_SIZE(rtl8365mb_init_jam_8365mb_vc),
++	},
+ };
+ 
+ enum rtl8365mb_stp_state {

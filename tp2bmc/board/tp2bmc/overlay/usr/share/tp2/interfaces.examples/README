@@ -1,0 +1,20 @@
+# ifupdown-ng profile examples (NOT auto-loaded)
+#
+# Active profiles live in /etc/network/interfaces.d/ as NN-name (e.g. 00-br0-flat).
+# Do not leave *.example files in interfaces.d — ifupdown-ng loads every file there.
+# Templates: /usr/share/tp2/interfaces.examples/
+#
+# Factory default: /etc/network/interfaces.d/00-br0-flat
+#
+# Enable LACP bond (ge0+ge1 → bond0 → br0):
+#   mv /etc/network/interfaces.d/00-br0-flat /etc/network/interfaces.d/00-br0-flat.disabled
+#   cp /usr/share/tp2/interfaces.examples/bond-lacp.example /etc/network/interfaces.d/10-bond-lacp
+#   ifdown br0 bond0 --force; echo -n > /run/ifstate
+#   ifup -f bond0; ifup -f br0
+#
+# bond-lacp waits for LACP on bond0 before br0 DHCP; no nomaster/set_br0_mac on br0.
+# Node→WAN needs kernel net-dsa/0003 (LAG bridge uplink fixup), not LACP alone.
+#
+# Revert: rm /etc/network/interfaces.d/10-bond-lacp; mv 00-br0-flat.disabled 00-br0-flat; ifup -f br0
+#
+# Upstream: OPNsense LAGG (LACP) on igb0+igb2 — see README "OPNsense LACP peer".
