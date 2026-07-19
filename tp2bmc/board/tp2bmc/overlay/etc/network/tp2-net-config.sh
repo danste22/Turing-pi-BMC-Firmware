@@ -436,6 +436,26 @@ apply_vlans() {
 	for _p in $(list_vlan_subif_sections); do
 		apply_vlan_subifs "$_p"
 	done
+
+	# Host stack on br0 needs a PVID when vlan_filtering=1 (DHCP/ARP from BMC).
+	if [ "$_filtering" -eq 1 ]; then
+		apply_br0_host_pvid
+	fi
+}
+
+# Native/PVID for br0 itself (from uplink trunk native=, else 1).
+apply_br0_host_pvid() {
+	_native=1
+	for _p in bond0 ge0 ge1; do
+		_mode=$(cfg_get "port.$_p" mode '' | tr 'A-Z' 'a-z')
+		if [ "$_mode" = "trunk" ]; then
+			_native=$(cfg_int "port.$_p" native 1)
+			break
+		fi
+	done
+	validate_vid "$_native"
+	bridge vlan add dev br0 vid "$_native" pvid untagged self \
+		|| die "bridge vlan br0 host PVID $_native"
 }
 
 # --- interfaces file generation ---
@@ -653,6 +673,26 @@ cmd_reset() {
 	log "reset complete (flat br0, ge0+ge1 direct, DHCP)"
 }
 
+# True if network.conf needs a full apply after boot (bond or per-port VLANs).
+# Flat factory (bond=0, no [port.*]) is handled by interfaces.d alone.
+conf_needs_boot_apply() {
+	[ -r "$CONF" ] || return 1
+	cfg_bool bond enabled 0 && return 0
+	for _p in $(list_port_sections); do
+		[ -n "$(cfg_get "port.$_p" mode '')" ] && return 0
+	done
+	return 1
+}
+
+# Called from S42tp2-net-config after S40network so Mode 2–4 survive reboot.
+cmd_boot() {
+	if ! conf_needs_boot_apply; then
+		exit 0
+	fi
+	log "boot: re-applying $CONF (bond/VLAN not in interfaces.d alone)"
+	cmd_apply
+}
+
 cmd_show() {
 	if [ -r "$CONF" ]; then
 		echo "# config: $CONF"
@@ -684,7 +724,8 @@ hook_pre_up() {
 
 hook_post_up() {
 	[ -r "$CONF" ] || exit 0
-	cfg_bool boot apply_on_ifup 0 || exit 0
+	# Prefer S42tp2-net-config boot apply; this is a light fallback for ifup.
+	conf_needs_boot_apply || exit 0
 	apply_vlans
 }
 
@@ -695,6 +736,7 @@ Usage: tp2-net-config <command> [-c /etc/tp2/network.conf]
 Commands:
   apply              Apply config: bond + VLAN + IP addressing + persist
   reset              Factory flat br0 (ge0+ge1 direct, DHCP) + persist
+  boot               Re-apply on boot if bond or [port.*] VLANs are configured
   show               Print config summary and kernel bridge/bond/VLAN state
   pre-up             ifupdown hook: create bond before bridge-ports attach
   post-up            ifupdown hook: VLAN rules after br0 is up
@@ -733,7 +775,7 @@ EOF
 cmd=show
 while [ $# -gt 0 ]; do
 	case "$1" in
-	apply | reset | show | pre-up | post-up)
+	apply | reset | boot | show | pre-up | post-up)
 		cmd=$1
 		shift
 		;;
@@ -756,6 +798,7 @@ done
 case "$cmd" in
 apply) cmd_apply ;;
 reset) cmd_reset ;;
+boot) cmd_boot ;;
 show) cmd_show ;;
 pre-up) hook_pre_up ;;
 post-up) hook_post_up ;;

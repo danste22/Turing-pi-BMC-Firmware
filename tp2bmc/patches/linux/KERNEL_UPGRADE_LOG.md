@@ -134,6 +134,19 @@ Production retains **0001** only unless bench shows regressions without 0002–0
 - **`tpi-i2c-smi-arbiter`** / shared PE12/PE13 — TP2-only
 - **`realtek-smi-i2c`** — we are dropping this path
 
+### Mode 4 gap — VLAN DB not applied to LAG members
+
+`realtek_forward` VLAN offload targets **DSA user ports in the bridge**.
+With `bond0` on `br0`, `ge0`/`ge1` are bond slaves (not bridge members), so
+`port_vlan_add` never programs the ASIC trunk ports. Linux still tags on
+`bond0` (CPU path); HW can also forward **untagged PVID 1** → native LAN
+DHCP races VLAN DHCP (Mode 3 flat trunk is fine).
+
+**Fix direction:** in `0003` lag bridge fixup (and on VLAN add/del while LAG
+active), mirror `bridge vlan` for `bond0` onto each lag member via the
+existing `rtl8365mb` VLAN table helpers (PVID untagged + tagged members),
+same membership Mode 3 applies to `ge0`.
+
 ### Adoption checklist (run when series appears in `git tag v6.x`)
 
 1. `kernel-history-tool.sh` / manual: confirm files in `drivers/net/dsa/realtek/`, `net/dsa/tag_rtl8_4.c` match series.

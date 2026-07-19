@@ -5,6 +5,10 @@
 #   vi /etc/tp2/network.conf
 #   tp2-net-config apply
 #
+# Persist across reboot: keep this file on the rootfs. S42tp2-net-config runs
+# `tp2-net-config boot` after networking and re-applies when bond or [port.*]
+# VLANs are set (plain flat Mode 1 needs no boot re-apply).
+#
 # Reset to factory flat br0:
 #   tp2-net-config reset
 #

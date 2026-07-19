@@ -1,10 +1,26 @@
 From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
 From: Sam Edwards <CFSworks@gmail.com>
 Date: Sat, 05 Jul 2026 17:35:39 +0200
-Subject: [PATCH 3/4] net: dsa: rtl8365mb: hardware LAG offload with bridge uplink fixup
+Subject: [PATCH 3/3] net: dsa: rtl8365mb: hardware LAG offload with bridge uplink fixup
 
 Add DSA port_lag_join/leave/change hooks and program the RTL8367-class
 trunk tables so ge0+ge1 can hash in hardware when enslaved to bond0.
+
+Origin / credits:
+  rtl8365mb DSA baseline: Sam Edwards <CFSworks@gmail.com>
+  Bridge / VLAN / FDB offload this patch builds on: Luiz Angelo Daros de
+    Luca's realtek_forward series (local backport in net-dsa/0001); see
+    that patch header for lore links and net-next commit 660a9e399ab0.
+  PORT_TRUNK_* register map / dumb-mode semantics: Realtek rtl8367c
+    vendor SDK (RTL8370MB-CG validated on Turing Pi 2).
+  LAG+br0 isolation/EFID/flood/STP/FDB remap and tag offload_fwd_mark
+    policy: Turing Pi 2 BMC bring-up (not in realtek_forward).
+
+Known gap (Mode 4): when bond0 is the bridge port, Linux programs VLANs
+on bond0 only; DSA port_vlan_* runs for node* but not for ge0/ge1 lag
+members, so ASIC trunk ports may keep PVID 1 untagged and leak native
+DHCP alongside tagged VLAN traffic. Fix: sync br0/bond0 VLAN DB onto
+lag member ports in HW (see KERNEL_UPGRADE_LOG / follow-up).
 
 When bond0 sits on br0 (software bridge), ge0/ge1 leave DSA bridge
 offload. Node->WAN traffic would hairpin through the 100M CPU port

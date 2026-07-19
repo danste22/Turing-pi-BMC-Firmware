@@ -1,7 +1,12 @@
 From: Sam Edwards <CFSworks@gmail.com>
-Subject: [PATCH 2/2] net: dsa: rtl8365mb: add RTL8370MB-CG support
+Subject: [PATCH 2/3] net: dsa: rtl8365mb: add RTL8370MB-CG support
 
 Add the RTL8370MB-CG chip row used by Turing Pi 2 v2.5+ boards.
+
+Origin / credits:
+  rtl8365mb DSA driver baseline: Sam Edwards <CFSworks@gmail.com>
+  Chip row (0x6368 / 0x0010) for TP2 v2.5+: local addition on top of that
+  driver; candidate for upstream once validated independently of LAG work.
 
 Signed-off-by: Sam Edwards <CFSworks@gmail.com>
 ---
