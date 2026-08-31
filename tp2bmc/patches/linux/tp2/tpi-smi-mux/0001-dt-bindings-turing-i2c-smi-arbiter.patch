@@ -11,8 +11,8 @@ Realtek SMI driver to obtain the arbiter phandle.
 
 Signed-off-by: Sven Rademakers <sven@turingpi.com>
 ---
- .../devicetree/bindings/i2c/turing,i2c-smi-arbiter.yaml | 74 ++++++++++++++++++++++++
- 1 file changed, 74 insertions(+)
+ .../devicetree/bindings/i2c/turing,i2c-smi-arbiter.yaml | 76 ++++++++++++++++++++++++
+ 1 file changed, 76 insertions(+)
  create mode 100644 Documentation/devicetree/bindings/i2c/turing,i2c-smi-arbiter.yaml
 
 diff --git a/Documentation/devicetree/bindings/i2c/turing,i2c-smi-arbiter.yaml b/Documentation/devicetree/bindings/i2c/turing,i2c-smi-arbiter.yaml
@@ -20,7 +20,7 @@ new file mode 100644
 index 000000000000..a1b2c3d4e5f6
 --- /dev/null
 +++ b/Documentation/devicetree/bindings/i2c/turing,i2c-smi-arbiter.yaml
-@@ -0,0 +1,74 @@
+@@ -0,0 +1,76 @@
 +# SPDX-License-Identifier: (GPL-2.0-only OR BSD-2-Clause)
 +%YAML 1.2
 +---
@@ -41,8 +41,9 @@ index 000000000000..a1b2c3d4e5f6
 +  so the arbiter can switch pin ownership between the TWI block and gpiolib.
 +
 +  Consumers reference this node via a "turing,smi-arbiter" phandle property
-+  on their own DT node.  The realtek-smi driver uses this to bracket every
-+  SMI register access with tpi_smi_arb_begin() / tpi_smi_arb_end().
++  on their own DT node. Drivers that bitbang SMI on the shared pins must
++  acquire the arbiter around each SMI register access so Profile A (HW I2C)
++  and Profile B (GPIO SMI) never overlap.
 +
 +properties:
 +  compatible:

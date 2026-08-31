@@ -2943,7 +2943,7 @@ new file mode 100644
 index 0000000..5ac091b
 --- /dev/null
 +++ b/drivers/net/dsa/realtek/rtl8365mb_main.c
-@@ -0,0 +1,2782 @@
+@@ -0,0 +1,2786 @@
 +// SPDX-License-Identifier: GPL-2.0
 +/* Realtek SMI subdriver for the Realtek RTL8365MB-VC ethernet switch.
 + *

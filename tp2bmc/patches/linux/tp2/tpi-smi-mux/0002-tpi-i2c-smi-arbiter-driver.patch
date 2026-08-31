@@ -53,7 +53,7 @@ new file mode 100644
 index 000000000000..a1b2c3d4e5f6
 --- /dev/null
 +++ b/drivers/i2c/busses/tpi-i2c-smi-arbiter.c
-@@ -0,0 +1,191 @@
+@@ -0,0 +1,197 @@
 +// SPDX-License-Identifier: GPL-2.0
 +/*
 + * Turing Pi 2: arbitrate HW I2C vs GPIO SMI on shared TWI pins.
@@ -191,19 +191,25 @@ index 000000000000..a1b2c3d4e5f6
 +		arb->ctl_dev = &adap->dev;
 +
 +	arb->pctl = devm_pinctrl_get(arb->ctl_dev);
-+	if (IS_ERR(arb->pctl))
++	if (IS_ERR(arb->pctl)) {
++		i2c_put_adapter(adap);
 +		return dev_err_probe(&pdev->dev, PTR_ERR(arb->pctl),
 +				     "pinctrl get failed\n");
++	}
 +
 +	arb->st_default = pinctrl_lookup_state(arb->pctl, "default");
-+	if (IS_ERR(arb->st_default))
++	if (IS_ERR(arb->st_default)) {
++		i2c_put_adapter(adap);
 +		return dev_err_probe(&pdev->dev, PTR_ERR(arb->st_default),
 +				     "missing default pinctrl state\n");
++	}
 +
 +	arb->st_smi = pinctrl_lookup_state(arb->pctl, "smi_mode");
-+	if (IS_ERR(arb->st_smi))
++	if (IS_ERR(arb->st_smi)) {
++		i2c_put_adapter(adap);
 +		return dev_err_probe(&pdev->dev, PTR_ERR(arb->st_smi),
 +				     "missing smi_mode pinctrl state\n");
++	}
 +
 +	platform_set_drvdata(pdev, arb);
 +
@@ -242,7 +248,7 @@ index 000000000000..a1b2c3d4e5f6
 +};
 +module_platform_driver(tpi_smi_arb_driver);
 +
-+MODULE_AUTHOR("Turing Machines, Inc.");
++MODULE_AUTHOR("Sven Rademakers <sven@turingpi.com>");
 +MODULE_DESCRIPTION("Turing Pi 2 I2C/SMI shared-pin arbiter");
 +MODULE_LICENSE("GPL");
 diff --git a/include/linux/tpi-i2c-smi-arbiter.h b/include/linux/tpi-i2c-smi-arbiter.h
