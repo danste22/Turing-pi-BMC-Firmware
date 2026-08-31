@@ -97,9 +97,18 @@ Long-term: **SUBMIT** arbiter + binding upstream (optional).
 
 Production retains **0001** only unless bench shows regressions without 0002–0004.
 
+#### `patches/linux/tp2/power/`
+
+| Path | Purpose | Production |
+|------|---------|------------|
+| `tp2/power/0001` | regulator-fixed `preserve-boot-state` | **KEEP** (TP2 warm-reboot) |
+| `tp2/power/0002` | gpio-latch SRAM shadow @ `0x0709010c` | **KEEP** (TP2 SPL contract; not mainline-generic) |
+
+Former combined `power/0001-power-regulator-fixed-gpio-latch-…` was split into `0001`+`0002` above.
+
 #### Unchanged patch sets
 
-`power/`, `gpio/`, `pwm/` — **KEEP** as today.
+`gpio/`, `pwm/` — **KEEP** as today.
 
 ---
 
