@@ -36,7 +36,7 @@ Legend: **KEEP** carry in tree · **DROP** remove after step · **REPLACE** supe
 | `CONFIG_NET_DSA_REALTEK_SMI_I2C` | `y` | off | **DROP** |
 | `CONFIG_TPI_I2C_SMI_ARBITER` | absent | `y` | **MERGE** |
 | `CONFIG_I2C_GPIO` | off | off | unchanged |
-| `BR2_LINUX_KERNEL_PATCH` | no `tpi-smi-mux` | include `tpi-smi-mux` | **MERGE** |
+| `BR2_LINUX_KERNEL_PATCH` | no `tp2/tpi-smi-mux` | include `tp2/tpi-smi-mux` | **MERGE** |
 
 PoC defconfig (`linux_smi_mux_poc_defconfig`, `tp2bmc_smi_mux_poc_defconfig`) → **DROPPED** (Phase D).
 
@@ -62,7 +62,7 @@ PoC defconfig (`linux_smi_mux_poc_defconfig`, `tp2bmc_smi_mux_poc_defconfig`) �
 
 ### Phase D — patch directories — **DONE**
 
-#### `patches/linux/tpi-smi-mux/` (0001–0003)
+#### `patches/linux/tp2/tpi-smi-mux/` (0001–0003)
 
 | Patch | Purpose | Production |
 |-------|---------|------------|
@@ -72,7 +72,7 @@ PoC defconfig (`linux_smi_mux_poc_defconfig`, `tp2bmc_smi_mux_poc_defconfig`) �
 
 **Removed from tree:** former `0004`–`0006` (folded into `0001`–`0003`). PoC DTS/defconfigs/scripts dropped.
 
-Add directory to `BR2_LINUX_KERNEL_PATCH` in `tp2bmc_defconfig`.  
+Add directory to `BR2_LINUX_KERNEL_PATCH` in `tp2bmc_defconfig` (order: `generic/i2c` → `generic/pwm` → `net-dsa` → `tp2/gpio` → `tp2/power` → `tp2/tpi-smi-mux`).  
 Long-term: **SUBMIT** arbiter + binding upstream (optional).
 
 #### `patches/linux/net-dsa/`
@@ -85,7 +85,7 @@ Long-term: **SUBMIT** arbiter + binding upstream (optional).
 
 **Removed from tree (superseded — do not re-add):** `0001-net-dsa-tag_rtl8_4-*` (in backport `0001`), old `0002` i2c_addr, duplicate `0003` chip row, `0004` RTK-over-I²C, old `0005` bridge offload, `0006` smi-i2c NOSTART doc, split LAG+fixup patches (now single `0003`).
 
-#### `patches/linux/i2c/` (mv64xxx)
+#### `patches/linux/generic/i2c/` (mv64xxx)
 
 | Patch | Purpose | Production SMI |
 |-------|---------|----------------|
@@ -97,18 +97,16 @@ Long-term: **SUBMIT** arbiter + binding upstream (optional).
 
 Production retains **0001** only unless bench shows regressions without 0002–0004.
 
-#### `patches/linux/tp2/power/`
+#### `patches/linux/tp2/power/` / `tp2/gpio/` / `generic/pwm/`
 
 | Path | Purpose | Production |
 |------|---------|------------|
 | `tp2/power/0001` | regulator-fixed `preserve-boot-state` | **KEEP** (TP2 warm-reboot) |
 | `tp2/power/0002` | gpio-latch SRAM shadow @ `0x0709010c` | **KEEP** (TP2 SPL contract; not mainline-generic) |
+| `tp2/gpio/0001` | gpio-aggregator `turing,pi2-nodes` | **KEEP** |
+| `generic/pwm/0001–0003` | Allwinner D1/T113 PWM | **KEEP** until upstream |
 
 Former combined `power/0001-power-regulator-fixed-gpio-latch-…` was split into `0001`+`0002` above.
-
-#### Unchanged patch sets
-
-`gpio/`, `pwm/` — **KEEP** as today.
 
 ---
 

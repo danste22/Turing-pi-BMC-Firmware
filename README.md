@@ -682,7 +682,7 @@ Kernel/DSA patch series live under [`tp2bmc/patches/linux/`](tp2bmc/patches/linu
 (per DT variant) **PCF8563** at **0x51**. The **RTL8370MB** switch is managed via
 **GPIO SMI bitbang** on the same pins (**PE12** = SCK, **PE13** = SDA), with
 **`tpi-i2c-smi-arbiter`** muxing between HW I²C (EEPROM / RTC) and SMI traffic.
-Kernel patches live under [`tp2bmc/patches/linux/tpi-smi-mux/`](tp2bmc/patches/linux/tpi-smi-mux/).
+Kernel patches live under [`tp2bmc/patches/linux/tp2/tpi-smi-mux/`](tp2bmc/patches/linux/tp2/tpi-smi-mux/).
 Maintainer upgrade notes (including upstream **`realtek_forward`** monitor): [`KERNEL_UPGRADE_LOG.md`](tp2bmc/patches/linux/KERNEL_UPGRADE_LOG.md).
 
 **Fan control**
