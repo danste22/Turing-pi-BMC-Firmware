@@ -73,19 +73,25 @@ done
 # would otherwise leave turing-pi2.itb packing a stale kernel.
 install -D -m 0644 "${linux_bdir}/arch/arm/boot/zImage" "${BINARIES_DIR}/zImage"
 
-# LAG fixup helpers are static — use source + .o/vmlinux strings (not nm/zImage).
+# LAG fixup helpers are static — verify source + that the object was linked
+# (dev_dbg format strings are omitted from release builds; use nm + a durable
+# summary string that stays as dev_info).
 main_c="${linux_bdir}/drivers/net/dsa/realtek/rtl8365mb_main.c"
 lag_c="${linux_bdir}/drivers/net/dsa/realtek/rtl8365mb_lag.c"
 lag_o="${linux_bdir}/drivers/net/dsa/realtek/rtl8365mb_lag.o"
 linux_stamp="${linux_bdir}/.stamp_built"
 vmlinux="${linux_bdir}/vmlinux"
 
-if ! grep -q 'rtl8365mb_lag_fdb_remap_cpu' "$main_c" 2>/dev/null; then
-	echo "FAIL: net-dsa/0003 LAG fixup not applied to kernel tree" >&2
+if ! grep -q 'rtl8365mb_port_fdb_add' "$main_c" 2>/dev/null; then
+	echo "FAIL: net-dsa/0004 LAG fixup not applied to kernel tree" >&2
 	exit 1
 fi
-if ! grep -q 'cpu 0x%x' "$lag_c" 2>/dev/null; then
-	echo "FAIL: net-dsa/0003 LAG bridge uplink fixup missing in kernel tree" >&2
+if ! grep -q 'rtl8365mb_lag_bridge_isolation_fixup' "$lag_c" 2>/dev/null; then
+	echo "FAIL: net-dsa/0004 LAG bridge uplink fixup missing in kernel tree" >&2
+	exit 1
+fi
+if ! grep -q 'rtl8365mb_lag_pin_conduit_mac' "$lag_c" 2>/dev/null; then
+	echo "FAIL: net-dsa/0004 conduit MAC pin missing in kernel tree" >&2
 	exit 1
 fi
 for f in "$main_c" "$lag_c"; do
@@ -96,14 +102,19 @@ for f in "$main_c" "$lag_c"; do
 done
 
 lag_fixup_ok=0
-for blob in "$vmlinux" "$lag_o"; do
-	if [[ -f "$blob" ]] && strings "$blob" 2>/dev/null | grep -qF 'cpu 0x%x'; then
-		lag_fixup_ok=1
-		break
-	fi
-done
+if [[ -f "$lag_o" ]] && nm "$lag_o" 2>/dev/null | grep -q 'rtl8365mb_lag_bridge_isolation_fixup'; then
+	lag_fixup_ok=1
+fi
 if [[ "$lag_fixup_ok" -ne 1 ]]; then
-	echo "FAIL: LAG bridge uplink fixup not in built kernel (expect 'cpu 0x%x' in lag driver)" >&2
+	for blob in "$vmlinux" "$lag_o"; do
+		if [[ -f "$blob" ]] && strings "$blob" 2>/dev/null | grep -qF 'LAG bridge uplink fixup'; then
+			lag_fixup_ok=1
+			break
+		fi
+	done
+fi
+if [[ "$lag_fixup_ok" -ne 1 ]]; then
+	echo "FAIL: LAG bridge uplink fixup not in built kernel (expect isolation_fixup in rtl8365mb_lag.o)" >&2
 	echo "      Run: make linux-dirclean linux && make target-finalize rootfs-erofs" >&2
 	exit 1
 fi

@@ -444,13 +444,21 @@ FDB entries, VLAN/PVID tables, bridge port flags, and **hardware LAG/trunk**
 | **node\* ↔ node\*** on `br0` | Switch ASIC | ~1 Gbit/s |
 | **BMC-originated** traffic (`eth0` / RMII) | CPU port | **≤ ~100 Mbit/s** |
 | **node\* → WAN** flat `br0` (`ge0`/`ge1` on bridge) | Switch ASIC | ~1 Gbit/s per flow |
-| **node\* → WAN** bond profile (`bond0` on `br0`) | Switch ASIC **after patch `net-dsa/0003`** | ~1 Gbit/s per flow; **~2 Gbit/s** aggregate multi-flow |
+| **node\* → WAN** bond profile (`bond0` on `br0`) | Switch ASIC **after patches `net-dsa/0003`–`0005`** | **~207 Mbit/s measured** (see note) |
 
 Earlier bond-only images programmed LACP + HW LAG but left node→WAN traffic
-**hairpinning through `eth0`** (~88 Mbit/s). Patch
-[`0003-net-dsa-rtl8365mb-hw-lag-bridge-uplink.patch`](tp2bmc/patches/linux/net-dsa/0003-net-dsa-rtl8365mb-hw-lag-bridge-uplink.patch)
-extends isolation + FDB remapping so `bond0`+`br0` uses the ASIC path. **Reflash
-kernel after pulling this patch** and re-run the uplink validation below.
+**hairpinning through the CPU port** (~94 Mbit/s, with the transfer size
+appearing in *both* directions on the conduit). Patches
+[`0003`](tp2bmc/patches/linux/net-dsa/0003-net-dsa-rtl8365mb-hardware-lag-trunk-offload.patch)–[`0005`](tp2bmc/patches/linux/net-dsa/0005-net-dsa-rtl8365mb-lag-phy-autoneg-kick.patch)
+trap LACP to the CPU, stop VLAN filtering being forced onto the trunk members,
+and leave `offload_fwd_mark` alone so the bridge does not re-forward in
+software. **Reflash the kernel after pulling these patches** and re-run the
+uplink validation below.
+
+> **Known limitation.** Node→WAN over the bond is confirmed ASIC-switched (the
+> conduit stays quiet under load) but currently measures **~207 Mbit/s**, not
+> line rate. The cap pre-dates this work and is unexplained on a gigabit switch
+> with a 2×1G trunk; see `KERNEL_UPGRADE_LOG.md` → *Mode 2 — LACP data plane*.
 
 LACP control frames stay in the kernel bonding driver; data frames hash across
 `ge0`+`ge1` in hardware once the trunk + bridge fixup is active.
@@ -515,9 +523,10 @@ ip=dhcp
 ```
 
 `ge0`+`ge1` bonded into `bond0` (802.3ad, HW LAG offload). `bond0` +
-`node1`–`node4` join `br0`. Requires an **LACP peer** upstream. Kernel patch
-[`net-dsa/0003`](tp2bmc/patches/linux/net-dsa/0003-net-dsa-rtl8365mb-hw-lag-bridge-uplink.patch)
-enables HW LAG offload + node→WAN ASIC forwarding.
+`node1`–`node4` join `br0`. Requires an **LACP peer** upstream. Kernel patches
+[`net-dsa/0003`](tp2bmc/patches/linux/net-dsa/0003-net-dsa-rtl8365mb-hardware-lag-trunk-offload.patch)
+and [`0004`](tp2bmc/patches/linux/net-dsa/0004-net-dsa-rtl8365mb-lag-bridge-uplink-vlan-sync.patch)
+enable HW LAG offload, LACP delivery to the CPU, and node→WAN ASIC forwarding.
 
 | OPNsense side | BMC side |
 | ------------- | -------- |

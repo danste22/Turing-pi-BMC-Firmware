@@ -1,5 +1,5 @@
 From: Sven Rademakers <sven@turingpi.com>
-Subject: [PATCH 2/3] net: dsa: rtl8365mb: add RTL8370MB-CG support
+Subject: [PATCH 2/5] net: dsa: rtl8365mb: add RTL8370MB-CG support
 
 Add the RTL8370MB-CG chip row (chip_id 0x6368, chip_ver 0x0010) used by
 Turing Pi 2 v2.5+ boards.
