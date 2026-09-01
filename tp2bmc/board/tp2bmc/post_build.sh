@@ -173,15 +173,17 @@ rm -f "${TARGET_DIR}/etc/init.d/S01syslog"
 find "${BOARD_DIR}/overlay/etc/init.d" -maxdepth 1 -name 'S*' -exec chmod 755 {} +
 find "${TARGET_DIR}/etc/init.d" -maxdepth 1 -name 'S*' -exec chmod 755 {} + 2>/dev/null || true
 
-# Factory MAC helpers (overlay may lose +x depending on host checkout).
-chmod 755 "${TARGET_DIR}/etc/network/apply_bmc_mac.sh" 2>/dev/null || true
-chmod 755 "${TARGET_DIR}/etc/network/set_br0_mac_pre_dhcp.sh" 2>/dev/null || true
-chmod 755 "${TARGET_DIR}/etc/network/tp2-bond-up.sh" 2>/dev/null || true
-chmod 755 "${TARGET_DIR}/etc/network/tp2-bond-down.sh" 2>/dev/null || true
-chmod 755 "${TARGET_DIR}/etc/network/tp2-bond-wait-lacp.sh" 2>/dev/null || true
-chmod 755 "${TARGET_DIR}/etc/network/install-bond-lacp-profile.sh" 2>/dev/null || true
-chmod 755 "${TARGET_DIR}/usr/share/tp2/uplink-hairpin-test.sh" 2>/dev/null || true
-chmod 755 "${TARGET_DIR}/usr/share/tp2/hw-validate.sh" 2>/dev/null || true
+# A per-file list here goes stale silently: a script added to the overlay ships
+# non-executable and only fails at runtime. Cover every overlay file that starts
+# with a shebang instead.
+while IFS= read -r src; do
+	IFS= read -r shebang < "$src" || continue
+	[[ "$shebang" == '#!'* ]] || continue
+	dst="${TARGET_DIR}${src#"${BOARD_DIR}/overlay"}"
+	if [[ -f "$dst" ]]; then
+		chmod 755 "$dst"
+	fi
+done < <(find "${BOARD_DIR}/overlay" -type f)
 
 # #225: mdev hooks for /dev/disk/by-tpi/nodeN (block + USB hub port remove).
 mdev_script="mdev-tpi-msd-symlink"
