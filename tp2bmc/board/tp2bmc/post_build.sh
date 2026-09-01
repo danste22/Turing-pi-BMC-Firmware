@@ -183,6 +183,7 @@ chmod 755 "${TARGET_DIR}/etc/network/tp2-bond-down.sh" 2>/dev/null || true
 chmod 755 "${TARGET_DIR}/etc/network/tp2-bond-wait-lacp.sh" 2>/dev/null || true
 chmod 755 "${TARGET_DIR}/etc/network/install-bond-lacp-profile.sh" 2>/dev/null || true
 chmod 755 "${TARGET_DIR}/usr/share/tp2/uplink-hairpin-test.sh" 2>/dev/null || true
+chmod 755 "${TARGET_DIR}/usr/share/tp2/hw-validate.sh" 2>/dev/null || true
 
 # #225: mdev hooks for /dev/disk/by-tpi/nodeN (block + USB hub port remove).
 mdev_script="mdev-tpi-msd-symlink"
