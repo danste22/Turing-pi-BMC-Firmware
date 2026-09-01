@@ -26,9 +26,13 @@
 #   none              no IP on br0 (manual)
 ip=dhcp
 
-# Static IP only:
+# Static IP:
 #gateway=192.168.1.1
-#dns=192.168.1.1
+#
+# DNS (optional for dhcp *and* static). When set, overrides /etc/resolv.conf
+# after apply — useful when DHCP hands out the gateway as nameserver but that
+# host does not recurse (ping 8.8.8.8 works, ping heise.de fails).
+#dns=8.8.8.8,1.1.1.1
 
 # VLAN filtering — set automatically when [port.*] sections exist.
 # Force it on even without port rules:

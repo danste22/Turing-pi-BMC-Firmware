@@ -145,10 +145,21 @@ stop_dhcp() {
 	ip addr flush dev br0 scope global 2>/dev/null || true
 }
 
+# Override /etc/resolv.conf when [bridge] dns= is set (dhcp or static).
+# DHCP often installs the gateway as nameserver; that may not recurse.
+apply_dns_from_conf() {
+	_dns=$(cfg_get bridge dns '')
+	[ -n "$_dns" ] || return 0
+	: > /etc/resolv.conf
+	for _d in $(comma_to_space "$_dns"); do
+		echo "nameserver $_d" >> /etc/resolv.conf
+	done
+	log "resolv.conf nameserver(s): $_dns (from $CONF)"
+}
+
 apply_ip() {
 	_ip=$(cfg_get bridge ip 'dhcp' | tr 'A-Z' 'a-z')
 	_gw=$(cfg_get bridge gateway '')
-	_dns=$(cfg_get bridge dns '')
 
 	stop_dhcp
 
@@ -157,6 +168,7 @@ apply_ip() {
 		log "br0: starting DHCP"
 		udhcpc -b -R -p /var/run/udhcpc.br0.pid -i br0 \
 			-x "hostname:$(hostname)" -t 25 -T 2
+		apply_dns_from_conf
 		;;
 	none | manual)
 		log "br0: no IP (manual)"
@@ -168,12 +180,7 @@ apply_ip() {
 			ip route replace default via "$_gw" dev br0 \
 				|| log "warning: default route via $_gw failed"
 		fi
-		if [ -n "$_dns" ]; then
-			: > /etc/resolv.conf
-			for _d in $(comma_to_space "$_dns"); do
-				echo "nameserver $_d" >> /etc/resolv.conf
-			done
-		fi
+		apply_dns_from_conf
 		;;
 	esac
 }
