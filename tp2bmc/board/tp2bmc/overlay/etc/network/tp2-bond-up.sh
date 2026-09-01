@@ -25,12 +25,6 @@ modprobe bonding 2>/dev/null || true
 # bonding_masters is a sysfs file on 6.x (CONFIG_BONDING=y), not always a directory
 [ -e /sys/class/net/bonding_masters ] || die "bonding driver not available"
 
-for _s in $SLAVES; do
-	ip link show "$_s" >/dev/null 2>&1 || die "slave $_s missing"
-	ip link set dev "$_s" nomaster 2>/dev/null || true
-	ip link set dev "$_s" down 2>/dev/null || true
-done
-
 case "$PROFILE" in
 lacp | 802.3ad) MODE=802.3ad ;;
 ha | active-backup) MODE=active-backup ;;
@@ -53,10 +47,17 @@ bond_already_ok() {
 	return 0
 }
 
+# Check before tearing slaves down — otherwise we always recreate.
 if bond_already_ok; then
 	log "bond0 already configured mode=$MODE slaves=$SLAVES"
 	exit 0
 fi
+
+for _s in $SLAVES; do
+	ip link show "$_s" >/dev/null 2>&1 || die "slave $_s missing"
+	ip link set dev "$_s" nomaster 2>/dev/null || true
+	ip link set dev "$_s" down 2>/dev/null || true
+done
 
 if ip link show bond0 >/dev/null 2>&1; then
 	ip link set bond0 down 2>/dev/null || true
