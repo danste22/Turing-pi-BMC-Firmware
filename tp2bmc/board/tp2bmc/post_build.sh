@@ -141,10 +141,12 @@ if [[ ! -f "${uboot_img}" ]]; then
 fi
 "${CHECK_SPI_IMG}" "${uboot_img}"
 
+# /dev/ttyGS0 only exists while the ACM gadget is bound, so a respawn entry
+# here makes init log "GS0 respawning too fast" on every boot without a USB
+# host. mdev-ttyGS0-getty runs the getty instead; drop the entry incremental
+# builds may still carry.
 if [ -e ${TARGET_DIR}/etc/inittab ]; then
-	grep -qE '^GS0::' ${TARGET_DIR}/etc/inittab || \
-    sed -i '/GENERIC_SERIAL/a\
-GS0::respawn:/sbin/getty -L ttyGS0 115200 vt100 # BMC-USB-OTG' ${TARGET_DIR}/etc/inittab
+	sed -i '/^GS0::/d' ${TARGET_DIR}/etc/inittab
 fi
 
 # Bill of materials helper: every per-package build directory under output/build/
@@ -205,6 +207,16 @@ if [ -f "${mconf}" ]; then
 		printf '1-1\\.[1-4](:.*)?\troot:root\t660\t@/usr/bin/%s\n' "${mdev_script}" >>"${mconf}"
 		printf '2-1\\.[1-4](:.*)?\troot:root\t660\t@/usr/bin/%s\n' "${mdev_script}" >>"${mconf}"
 	fi
+fi
+
+# USB-gadget serial console: run a getty only while /dev/ttyGS0 exists.
+chmod 755 "${TARGET_DIR}/usr/bin/mdev-ttyGS0-getty" 2>/dev/null || true
+if [ -f "${mconf}" ]; then
+	sed -i '/# mdev-ttyGS0-getty/d' "${mconf}"
+	sed -i '/ttyGS0.*mdev-ttyGS0-getty/d' "${mconf}"
+	# '*' runs the helper on both add and remove; it reads $ACTION.
+	printf '\n# mdev-ttyGS0-getty — USB-OTG serial console\nttyGS0\troot:root\t660\t*/usr/bin/mdev-ttyGS0-getty\n' \
+		>>"${mconf}"
 fi
 
 # Rootfs size snapshot for dev-docs/rootfs-size-audit.md (NAND / 370 LEB budget).

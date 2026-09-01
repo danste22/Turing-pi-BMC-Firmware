@@ -49,9 +49,17 @@ case "$1" in
         fi
 
         update_udc "$udc"
+        # mdev normally starts this when /dev/ttyGS0 appears; call it too in
+        # case the node already exists (restart with the gadget still bound).
+        if [ -x /usr/bin/mdev-ttyGS0-getty ]; then
+            ACTION=add /usr/bin/mdev-ttyGS0-getty
+        fi
         ;;
     stop)
         printf "Stopping %s: " "${name}"
+        if [ -x /usr/bin/mdev-ttyGS0-getty ]; then
+            ACTION=remove /usr/bin/mdev-ttyGS0-getty
+        fi
         update_udc ""
         ;;
     restart|reload)
