@@ -71,8 +71,9 @@ while [ "$i" -lt "$MAX" ]; do
 	sleep 1
 	i=$((i + 1))
 done
-logger -t tp2-bond-wait "LACP not ready on ${BOND} after ${MAX}s (continuing)" 2>/dev/null || true
-exit 0
+echo "tp2-bond-wait: LACP not ready on ${BOND} after ${MAX}s (no partner / <2 ports)" >&2
+logger -t tp2-bond-wait "LACP not ready on ${BOND} after ${MAX}s" 2>/dev/null || true
+exit 1
 EOF
 
 cat > /etc/init.d/S41bond-br0-dhcp << 'EOF'

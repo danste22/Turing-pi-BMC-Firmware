@@ -142,6 +142,7 @@ validate_vid() {
 
 stop_dhcp() {
 	killall udhcpc 2>/dev/null || true
+	rm -f /var/run/udhcpc.br0.pid /run/udhcpc.br0.pid 2>/dev/null || true
 	ip addr flush dev br0 scope global 2>/dev/null || true
 }
 
@@ -155,6 +156,88 @@ apply_dns_from_conf() {
 		echo "nameserver $_d" >> /etc/resolv.conf
 	done
 	log "resolv.conf nameserver(s): $_dns (from $CONF)"
+}
+
+br0_has_ipv4() {
+	ip -4 addr show dev br0 2>/dev/null | grep -q 'inet '
+}
+
+# True when 802.3ad has a real partner (not just link-up + lucky DHCP).
+lacp_is_ready() {
+	_b=${1:-bond0}
+	[ -r "/proc/net/bonding/${_b}" ] || return 1
+	grep -q '^MII Status: up' "/proc/net/bonding/${_b}" || return 1
+	grep -A6 'Active Aggregator Info' "/proc/net/bonding/${_b}" \
+		| grep -q 'Number of ports: 2' || return 1
+	grep -A6 'Active Aggregator Info' "/proc/net/bonding/${_b}" \
+		| grep -q 'Partner Mac Address: 00:00:00:00:00:00' && return 1
+	return 0
+}
+
+# After ifup: bond may still be efid 0 / LACP not ready; ifup post-up is skipped
+# when udhcpc fails. Force wait + LAG refresh. Returns 1 if 802.3ad has no partner
+# (DHCP alone is not proof of a working uplink).
+ensure_bond_br0_fixup() {
+	cfg_bool bond enabled 0 || return 0
+	iface_exists bond0 || return 0
+
+	_mode=$(normalize_bond_mode "$(cfg_get bond mode '802.3ad')")
+
+	ip link show bond0 2>/dev/null | grep -q 'master br0' || \
+		ip link set bond0 master br0 2>/dev/null || true
+	ip link set br0 up 2>/dev/null || true
+	ip link set bond0 up 2>/dev/null || true
+
+	_timeout=$(cfg_int bond lacp_timeout 60)
+	# Refresh EFID/isolation before waiting on LACP. Script skips bond bounce
+	# when dmesg already shows non-zero efid (0004 bridge_join path).
+	if [ -x /etc/network/tp2-lag-bridge-fixup-refresh.sh ]; then
+		/etc/network/tp2-lag-bridge-fixup-refresh.sh
+	fi
+
+	if [ "$_mode" = "802.3ad" ] && [ -x /etc/network/tp2-bond-wait-lacp.sh ]; then
+		log "waiting for LACP (max ${_timeout}s)..."
+		/etc/network/tp2-bond-wait-lacp.sh bond0 "$_timeout" || true
+	fi
+
+	if [ "$_mode" = "802.3ad" ] && ! lacp_is_ready bond0; then
+		_partner=$(grep -A6 'Active Aggregator Info' /proc/net/bonding/bond0 2>/dev/null \
+			| grep 'Partner Mac Address:' | head -1 | sed 's/.*: //')
+		_ports=$(grep -A6 'Active Aggregator Info' /proc/net/bonding/bond0 2>/dev/null \
+			| grep 'Number of ports:' | head -1 | sed 's/.*: //')
+		log "error: LACP not negotiated (partner=${_partner:-?} ports=${_ports:-?})"
+		log "error: a DHCP lease can still appear — ignore it until Partner Mac is non-zero and ports=2"
+		log "error: check OPNsense LAGG (LACP, both NICs, LAN on lagg0, timeout Fast)"
+		return 1
+	fi
+	return 0
+}
+
+ensure_br0_dhcp() {
+	_ip=$(cfg_get bridge ip 'dhcp' | tr 'A-Z' 'a-z')
+	case "$_ip" in
+	dhcp | '') ;;
+	*) return 0 ;;
+	esac
+
+	if br0_has_ipv4; then
+		apply_dns_from_conf
+		return 0
+	fi
+
+	log "br0: no IPv4 after ifup — retrying DHCP"
+	killall udhcpc 2>/dev/null || true
+	rm -f /var/run/udhcpc.br0.pid /run/udhcpc.br0.pid 2>/dev/null || true
+
+	if udhcpc -i br0 -x "hostname:$(hostname)" -t 20 -T 2 -n 2>/dev/null; then
+		apply_dns_from_conf
+		return 0
+	fi
+
+	log "br0: DHCP still pending — forking udhcpc"
+	udhcpc -b -R -p /var/run/udhcpc.br0.pid -i br0 \
+		-x "hostname:$(hostname)" -t 10 -T 2
+	apply_dns_from_conf
 }
 
 apply_ip() {
@@ -183,13 +266,6 @@ apply_ip() {
 		apply_dns_from_conf
 		;;
 	esac
-}
-
-reset_ip_dhcp() {
-	stop_dhcp
-	log "br0: starting DHCP (reset)"
-	udhcpc -b -R -p /var/run/udhcpc.br0.pid -i br0 \
-		-x "hostname:$(hostname)" -t 25 -T 2
 }
 
 # --- bond ---
@@ -284,59 +360,12 @@ setup_bond() {
 	done
 }
 
-# --- LACP convergence + fixup ---
-
-wait_lacp_and_fixup() {
-	if ! cfg_bool bond enabled 0; then
-		return 0
-	fi
-
-	_mode=$(normalize_bond_mode "$(cfg_get bond mode '802.3ad')")
-	_timeout=$(cfg_int bond lacp_timeout 60)
-
-	if [ "$_mode" = "802.3ad" ]; then
-		log "waiting for LACP convergence (max ${_timeout}s)..."
-		if [ -x /etc/network/tp2-bond-wait-lacp.sh ]; then
-			/etc/network/tp2-bond-wait-lacp.sh bond0 "$_timeout"
-		else
-			sleep 5
-		fi
-	fi
-
-	if [ -x /etc/network/tp2-lag-bridge-fixup-refresh.sh ]; then
-		/etc/network/tp2-lag-bridge-fixup-refresh.sh
-	fi
-}
-
 # --- bridge membership ---
 
 detach_from_br0() {
 	for _p in $ALL_SWITCH_PORTS bond0; do
 		ip link set "$_p" nomaster 2>/dev/null || true
 	done
-}
-
-attach_to_br0() {
-	if ! iface_exists br0; then
-		ip link add name br0 type bridge || die "failed to create br0"
-	fi
-
-	for _p in $NODE_PORTS; do
-		iface_exists "$_p" || die "missing $_p"
-		ip link set "$_p" master br0 || die "cannot attach $_p to br0"
-		ip link set "$_p" up 2>/dev/null || true
-	done
-
-	if cfg_bool bond enabled 0; then
-		iface_exists bond0 || die "bond0 missing"
-		ip link set bond0 master br0 || die "cannot attach bond0 to br0"
-	else
-		for _p in $UPLINK_PORTS; do
-			iface_exists "$_p" || die "missing $_p"
-			ip link set "$_p" master br0 || die "cannot attach $_p to br0"
-			ip link set "$_p" up 2>/dev/null || true
-		done
-	fi
 }
 
 # --- VLAN ---
@@ -636,20 +665,44 @@ cmd_apply() {
 
 	stop_dhcp
 
-	if iface_exists br0; then
-		ifdown br0 2>/dev/null || ip link set br0 down 2>/dev/null || true
-	fi
-
+	# Tear down with the *current* interfaces.d still in place, then swap profile.
+	# ifup post-up (LAG refresh) is skipped when udhcpc fails — ensure_* below
+	# covers that. Clear ifstate so a half-dead bond0 does not confuse ifdown.
+	ifdown -af 2>/dev/null || true
+	ip link set lo up 2>/dev/null || true
+	teardown_bond
 	detach_from_br0
-	setup_bond
-	attach_to_br0
+	rm -f /run/ifstate /var/run/ifstate /etc/network/run/ifstate 2>/dev/null || true
+
+	write_interfaces_profile
+
+	# Do not die on ifup failure: dhcp timeout is common before LACP converges.
+	ifup -af 2>/dev/null || log "warning: ifup -af returned non-zero (will retry)"
+
+	if ! ensure_bond_br0_fixup; then
+		# Drop a misleading lease so "I have an IP" is not confused with uplink OK.
+		stop_dhcp
+		die "LACP not up — fix peer LAGG, then re-run apply"
+	fi
+	ensure_br0_dhcp
+
+	# Modes 3/4: VLAN/PVID are not fully expressed in interfaces.d
 	apply_vlans
 
-	ip link set br0 up || die "cannot bring br0 up"
+	# Re-run addressing when VLAN filtering just came on (host PVID must exist
+	# before DHCP/ARP on br0). Mode 2 with no [port.*] skips this.
+	_filtering=0
+	if cfg_bool bridge vlan_filtering 0; then
+		_filtering=1
+	fi
+	for _p in $(list_port_sections); do
+		[ -n "$(cfg_get "port.$_p" mode '')" ] && _filtering=1
+	done
+	if [ "$_filtering" -eq 1 ]; then
+		apply_ip
+	fi
 
-	wait_lacp_and_fixup
-	apply_ip
-	write_interfaces_profile
+	apply_dns_from_conf
 
 	log "apply complete — run 'tp2-net-config show' to verify"
 }
@@ -659,23 +712,25 @@ cmd_reset() {
 
 	stop_dhcp
 
-	if iface_exists br0; then
-		ifdown br0 2>/dev/null || ip link set br0 down 2>/dev/null || true
-	fi
+	ifdown -af 2>/dev/null || true
+	ip link set lo up 2>/dev/null || true
 
 	for _p in $ALL_SWITCH_PORTS bond0 br0; do
 		clear_port_vlans "$_p" 2>/dev/null || true
 	done
 
-	detach_from_br0
 	teardown_bond
-	attach_to_br0
+	detach_from_br0
+	rm -f /run/ifstate /var/run/ifstate /etc/network/run/ifstate 2>/dev/null || true
 
-	ip link set br0 type bridge vlan_filtering 0 2>/dev/null || true
-	ip link set br0 up 2>/dev/null || true
+	if iface_exists br0; then
+		ip link set br0 type bridge vlan_filtering 0 2>/dev/null || true
+	fi
 
-	reset_ip_dhcp
 	write_flat_profile
+	ifup -af 2>/dev/null || log "warning: ifup -af returned non-zero (will retry DHCP)"
+	ensure_br0_dhcp
+	apply_dns_from_conf
 
 	log "reset complete (flat br0, ge0+ge1 direct, DHCP)"
 }
