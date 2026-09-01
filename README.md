@@ -444,7 +444,7 @@ FDB entries, VLAN/PVID tables, bridge port flags, and **hardware LAG/trunk**
 | **node\* ↔ node\*** on `br0` | Switch ASIC | ~1 Gbit/s |
 | **BMC-originated** traffic (`eth0` / RMII) | CPU port | **≤ ~100 Mbit/s** |
 | **node\* → WAN** flat `br0` (`ge0`/`ge1` on bridge) | Switch ASIC | ~1 Gbit/s per flow |
-| **node\* → WAN** bond profile (`bond0` on `br0`) | Switch ASIC **after patches `net-dsa/0003`–`0005`** | **~207 Mbit/s measured** (see note) |
+| **node\* → WAN** bond profile (`bond0` on `br0`) | Switch ASIC **after patches `net-dsa/0003`–`0005`** | limited by the WAN router (see note) |
 
 Earlier bond-only images programmed LACP + HW LAG but left node→WAN traffic
 **hairpinning through the CPU port** (~94 Mbit/s, with the transfer size
@@ -455,10 +455,13 @@ and leave `offload_fwd_mark` alone so the bridge does not re-forward in
 software. **Reflash the kernel after pulling these patches** and re-run the
 uplink validation below.
 
-> **Known limitation.** Node→WAN over the bond is confirmed ASIC-switched (the
-> conduit stays quiet under load) but currently measures **~207 Mbit/s**, not
-> line rate. The cap pre-dates this work and is unexplained on a gigabit switch
-> with a 2×1G trunk; see `KERNEL_UPGRADE_LOG.md` → *Mode 2 — LACP data plane*.
+> **Measuring this path.** Node→WAN over the bond is confirmed ASIC-switched
+> (the conduit stays quiet under load), but node→WAN throughput measures
+> whatever the upstream router can route, not what the switch can forward. On
+> the lab OPNsense appliance that is 207–249 Mbit/s, and it does not change
+> when one of the two trunk cables is pulled. Benchmark **node→node** instead
+> to see ASIC line rate; see `KERNEL_UPGRADE_LOG.md` → *Mode 2 — LACP data
+> plane*.
 
 LACP control frames stay in the kernel bonding driver; data frames hash across
 `ge0`+`ge1` in hardware once the trunk + bridge fixup is active.

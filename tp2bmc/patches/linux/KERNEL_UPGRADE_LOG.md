@@ -200,7 +200,7 @@ node traffic in hardware.
 | `/proc/net/bonding/bond0` | `ports: 2`, partner `00:0d:b9:49:07:38`, Collecting+Distributing |
 | BMC → gateway / `8.8.8.8` | 0% loss |
 | Node → WAN conduit bytes | 11 KB over a 10 s iperf (was 243 MB) — ASIC switched |
-| Node → WAN throughput | **207 Mbit/s — not line rate, still open** |
+| Node → WAN throughput | 207–249 Mbit/s — ceiling is the OPNsense appliance, not the trunk |
 
 **Dead ends — do not re-try:**
 
@@ -218,12 +218,17 @@ node traffic in hardware.
 been present in every run, including all failing ones, so it has never been
 tested in isolation. Removing it is a one-line experiment.
 
-**Open — 207 Mbit/s cap.** Pre-dates this work (the same ~209 Mbit/s appears
-in earlier logs and *was* genuine ASIC offload). Not explained by a gigabit
-switch with a 2×1G trunk. Isolate with node→node iperf (stays inside the
-ASIC, no trunk) versus node→WAN, plus `/sys/class/net/*/speed`. Note
-`ethtool` is **not** in the image; add `BR2_PACKAGE_ETHTOOL=y` before
-debugging PHY/pause/counters.
+**Closed — the ~207 Mbit/s ceiling is the OPNsense appliance.** Later runs
+reached 249 Mbit/s, and disconnecting one of the two trunk cables left
+throughput unchanged. A single member still offers a full gigabit, so a
+figure that does not move when the trunk is halved is not set by the trunk,
+the LAG hash or the ASIC — it is the router terminating the WAN path. This
+also explains why the same ~209 Mbit/s appears in earlier logs from runs that
+*were* genuine ASIC offload. Use node→node iperf, which never leaves the
+switch, as the reference for ASIC line rate.
+
+(`ethtool` is **not** in the image; add `BR2_PACKAGE_ETHTOOL=y` before any
+future PHY/pause/counter debugging.)
 
 ### Adoption checklist (run when series appears in `git tag v6.x`)
 
@@ -239,7 +244,7 @@ debugging PHY/pause/counters.
 
 | Date | Kernel / tree | Series version | In mainline? | Local action |
 |------|---------------|----------------|--------------|--------------|
-| 2026-08-31 | 6.18.38 | Mode 2 LACP data plane (`net-dsa/0003`–`0005`) | **No** | LACP RMA trap + VLAN filtering guard; dropped `offload_fwd_mark` clear-all (CPU hairpin). Node→WAN ASIC switched; 207 Mbit/s cap open |
+| 2026-08-31 | 6.18.38 | Mode 2 LACP data plane (`net-dsa/0003`–`0005`) | **No** | LACP RMA trap + VLAN filtering guard; dropped `offload_fwd_mark` clear-all (CPU hairpin). Node→WAN ASIC switched; 207–249 Mbit/s ceiling traced to the OPNsense appliance |
 | 2026-07-04 | 6.18.33 | HW LAG offload (`net-dsa/0003`) | **No** | `port_lag_*` + RTL8367C trunk tables for `ge0`+`ge1` bond |
 | 2026-07-03 | 6.18.33 | `realtek_forward` merged in net-next through `660a9e399ab0` | **No** | Backported locally as `net-dsa/0001`; old minimal `0005` dropped |
 | 2026-07-02 | 6.18.33 | `realtek_forward` v13 on net-next | **No** | Production SMI migration merged; keep `net-dsa/0001`+`0005` until upstream lands |
