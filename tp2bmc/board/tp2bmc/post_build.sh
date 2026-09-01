@@ -90,10 +90,6 @@ if ! grep -q 'rtl8365mb_lag_bridge_isolation_fixup' "$lag_c" 2>/dev/null; then
 	echo "FAIL: net-dsa/0004 LAG bridge uplink fixup missing in kernel tree" >&2
 	exit 1
 fi
-if ! grep -q 'rtl8365mb_lag_pin_conduit_mac' "$lag_c" 2>/dev/null; then
-	echo "FAIL: net-dsa/0004 conduit MAC pin missing in kernel tree" >&2
-	exit 1
-fi
 for f in "$main_c" "$lag_c"; do
 	if [[ -f "$linux_stamp" && "$f" -nt "$linux_stamp" ]]; then
 		echo "FAIL: kernel sources newer than last build — run: make linux-dirclean linux" >&2

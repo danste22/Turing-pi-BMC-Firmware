@@ -82,7 +82,7 @@ Long-term: **SUBMIT** arbiter + binding upstream (optional).
 | 0001 | Backport `realtek_forward` through net-next `660a9e399ab0`: bridge, FDB, VLAN, bridge flags, `tag_rtl8_4` REASON handling | **KEEP** until shipped kernel includes the series |
 | 0002 | RTL8370MB-CG `0x6368/0x0010` chip row | **KEEP** until upstream adds chip row · **SUBMIT** |
 | 0003 | HW LAG/trunk offload (`port_lag_*`, dumb-mode trunk, LACP RMA trap); replaces unused HSR ops | **KEEP** |
-| 0004 | LAG bridge uplink fixups (isolation, EFID, VLAN filtering guard, conduit MAC pin, FDB CPU→lag remap) | **KEEP** (TP2 topology) |
+| 0004 | LAG bridge uplink fixups (isolation, EFID, VLAN filtering guard, FDB CPU→lag remap) | **KEEP** (TP2 topology) |
 | 0005 | PHY autoneg kick on node ports | **KEEP** (TP2 quirk) |
 
 **Removed from tree (superseded — do not re-add):** `0001-net-dsa-tag_rtl8_4-*` (in backport `0001`), old `0002` i2c_addr, duplicate `0003` chip row, `0004` RTK-over-I²C, old `0005` bridge offload, `0006` smi-i2c NOSTART doc, monolithic LAG+fixup `0003-net-dsa-rtl8365mb-hw-lag-bridge-uplink.patch`.
@@ -214,9 +214,36 @@ node traffic in hardware.
 - *Blaming the `0003`/`0004`/`0005` patch split, tag/mark policy, or dumb
   mode* for the LACP RX failure. None were involved.
 
-**Still unproven:** the conduit MAC pin (`rtl8365mb_lag_pin_conduit_mac`) has
-been present in every run, including all failing ones, so it has never been
-tested in isolation. Removing it is a one-line experiment.
+**Measured — the conduit MAC pin never worked, and BMC traffic floods.**
+`rtl8365mb_lag_pin_conduit_mac()` logged `LAG: pinned … on cpu port 4 efid 1`
+on every fixup, yet with it active both node1 and node2 captured the
+gateway's ICMP echo replies addressed to the BMC. `bridge fdb show dev <port>
+self`, which dumps the ASIC table, holds the attached module MACs on node1
+and node2 and the two OPNsense port MACs on ge0/ge1, but the BMC's
+`c4:ff:84:10:00:ba` appears on no port at all. The control confirms the
+mechanism: node1's MAC *is* in hardware, and traffic to it never reached
+node2. So an address with an FDB entry is switched, and the BMC's address —
+never learned, because CPU-injected TX sets `LEARN_DIS` — is unknown unicast
+and floods to every node. The pin has been removed from `0004`.
+
+**Open — BMC unicast floods to all node ports.** Every frame addressed to the
+BMC is delivered to all four node ports, so nodes can passively observe BMC
+management traffic. Deleting the pin does not cause this; the pin simply
+failed to prevent it. Root cause is not yet isolated: the entry key is
+(MAC, EFID, VID) with `ivl = true`, the pin wrote VID 0 which matches the
+hardware (every learned entry dumps without a VLAN), and EFID 1 matches the
+bridge number the trunk's own lookups are evidently using — replies to node1
+arriving on ge0 hit correctly. That points at the CPU port not being a valid
+destination for `l2_add_uc`, rather than at the key. The obvious probe,
+`bridge fdb add … dev node3 master static`, returns `File exists`: every DSA
+user port inherits the conduit MAC, so the bridge already holds a local entry
+(`c4:ff:84:10:00:ba dev node1 master br0 permanent`). Go at the hardware
+directly with `bridge fdb add … dev node3 self static`, or use a synthetic
+address the bridge has never seen. If the entry then shows up in `bridge fdb
+show dev node3 self`, static FDB works and only CPU-port targets are broken;
+if it does not, FDB offload in `0001` is not taking effect at all. `CONFIG_DYNAMIC_DEBUG=y` is absent from `linux_defconfig`, so
+the driver's `dev_dbg` traces of every FDB write are compiled out — enable it
+before the next round.
 
 **Closed — the ~207 Mbit/s ceiling is the OPNsense appliance.** Later runs
 reached 249 Mbit/s, and disconnecting one of the two trunk cables left

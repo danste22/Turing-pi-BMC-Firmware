@@ -13,8 +13,6 @@ DSA bridge offload. Restore ASIC reachability and Mode 4 trunk VLANs:
 - only enable VLAN filtering on lag members when the bridge is itself VLAN
   filtering; otherwise ge0/ge1 enforce membership against an empty VLAN
   table and drop every uplink frame that is not RMA trapped
-- pin conduit MAC as static FDB on the CPU port (and clear it from lag
-  members) so ARP/ICMP replies to the BMC are not stuck on the trunk
 - re-run fixup when node ports join/leave the bridge
 - sync bond bridge VLANs onto lag member ASIC ports
 
@@ -23,54 +21,10 @@ Signed-off-by: Sven Rademakers <sven@turingpi.com>
 diff -Naur a/drivers/net/dsa/realtek/rtl8365mb_lag.c b/drivers/net/dsa/realtek/rtl8365mb_lag.c
 --- a/drivers/net/dsa/realtek/rtl8365mb_lag.c	2026-07-20 01:33:37
 +++ b/drivers/net/dsa/realtek/rtl8365mb_lag.c	2026-07-20 01:33:37
-@@ -180,6 +180,345 @@
+@@ -180,6 +180,299 @@
  	return *pmask ? 0 : -EINVAL;
  }
  
-+/*
-+ * Pin the conduit MAC as a static FDB entry on the CPU port and drop it from
-+ * the trunk members, so unicast replies for the BMC are delivered to Linux.
-+ * Pinning on a lag member instead makes the ASIC bounce replies back out the
-+ * uplink or drop them as ingress==egress (verified: DHCP stops entirely).
-+ */
-+static void rtl8365mb_lag_pin_conduit_mac(struct dsa_switch *ds, u32 lag_pmask,
-+					  u32 br_efid)
-+{
-+	struct realtek_priv *priv = ds->priv;
-+	struct dsa_port *dp;
-+	const u8 *addr;
-+	int cpu, p, ret;
-+
-+	if (!priv->ops->l2_add_uc || !priv->ops->l2_del_uc || !lag_pmask)
-+		return;
-+
-+	dsa_switch_for_each_cpu_port(dp, ds) {
-+		if (!dp->conduit)
-+			continue;
-+		addr = dp->conduit->dev_addr;
-+		cpu = dp->index;
-+
-+		mutex_lock(&priv->l2_lock);
-+		for (p = 0; p < priv->num_ports; p++) {
-+			if (!(lag_pmask & BIT(p)))
-+				continue;
-+			priv->ops->l2_del_uc(priv, p, addr, br_efid, 0);
-+		}
-+		ret = priv->ops->l2_add_uc(priv, cpu, addr, br_efid, 0);
-+		mutex_unlock(&priv->l2_lock);
-+
-+		if (ret)
-+			dev_warn(priv->dev,
-+				 "LAG: pin %pM on cpu %d efid %u failed: %pe\n",
-+				 addr, cpu, br_efid, ERR_PTR(ret));
-+		else
-+			dev_info(priv->dev,
-+				 "LAG: pinned %pM on cpu port %d efid %u\n",
-+				 addr, cpu, br_efid);
-+		break;
-+	}
-+}
-+
 +/* bond0 on br0 is not a DSA port; restore ASIC reachability node* <-> ge0/ge1. */
 +static u32 rtl8365mb_lag_br_efid(struct dsa_switch *ds, u32 node_pmask, int port_hint)
 +{
@@ -337,8 +291,6 @@ diff -Naur a/drivers/net/dsa/realtek/rtl8365mb_lag.c b/drivers/net/dsa/realtek/r
 +	dev_info(priv->dev,
 +		 "LAG bridge uplink fixup: nodes 0x%x <-> lag 0x%x cpu 0x%x efid %u\n",
 +		 node_pmask, lag_pmask, cpu_pmask, br_efid);
-+
-+	rtl8365mb_lag_pin_conduit_mac(ds, lag_pmask, br_efid);
 +
 +	/* Read back ASIC state for diagnostics (reg addresses from rtl8365mb.c) */
 +	{
