@@ -1,6 +1,7 @@
 buildroot
 buildroot-*
 .DS_Store
+.cursor/
 .devcontainer/.bash_history
 dist
 wip
