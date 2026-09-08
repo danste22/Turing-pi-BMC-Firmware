@@ -1,6 +1,6 @@
 # TP2 BMC — kernel patch log & production migration
 
-Maintainer notes for Linux **6.18.33** (Buildroot `tp2bmc_defconfig`).  
+Maintainer notes for Linux **6.18.48** (Buildroot `tp2bmc_defconfig`).  
 Patch inventory: `scripts/kernel-patch-tool.sh inventory`.
 
 **See also:** [`dev-docs/tp2-network-uboot-kernel.md`](../../../dev-docs/tp2-network-uboot-kernel.md) — U-Boot vs kernel network split, SMI migration gap, open U-Boot follow-ups.
@@ -84,6 +84,7 @@ Long-term: **SUBMIT** arbiter + binding upstream (optional).
 | 0003 | HW LAG/trunk offload (`port_lag_*`, dumb-mode trunk, LACP RMA trap); replaces unused HSR ops | **KEEP** |
 | 0004 | LAG bridge uplink fixups (isolation, EFID, VLAN filtering guard, FDB CPU→lag remap) | **KEEP** (TP2 topology) |
 | 0005 | PHY autoneg kick on node ports | **KEEP** (TP2 quirk) |
+| 0006 | Key FDB entries for the learning mode the lookup uses (`ivl = vid != 0`) | **KEEP** · **SUBMIT** (fixes upstream `realtek_forward`) |
 
 **Removed from tree (superseded — do not re-add):** `0001-net-dsa-tag_rtl8_4-*` (in backport `0001`), old `0002` i2c_addr, duplicate `0003` chip row, `0004` RTK-over-I²C, old `0005` bridge offload, `0006` smi-i2c NOSTART doc, monolithic LAG+fixup `0003-net-dsa-rtl8365mb-hw-lag-bridge-uplink.patch`.
 
@@ -150,7 +151,7 @@ With `bond0` on `br0`, `ge0`/`ge1` are bond slaves, so `port_vlan_add` never
 ran for the ASIC trunk ports (Mode 3 flat `ge0` trunk was fine; Mode 4 leaked
 untagged native DHCP alongside tagged VLAN DHCP).
 
-**Fix in `0003`:** `rtl8365mb_lag_sync_uplink_vlans()` mirrors `bond0`’s bridge
+**Fix in `0004`:** `rtl8365mb_lag_sync_uplink_vlans()` mirrors `bond0`’s bridge
 VLAN DB onto each lag member via `port_vlan_filtering` + `port_vlan_add`,
 called from lag refresh and `rtl8365mb_lag_bridge_fixup_refresh()` (after
 `tp2-net-config` applies VLANs). Validate with LAN DHCP enabled: nodes must
@@ -226,25 +227,6 @@ node2. So an address with an FDB entry is switched, and the BMC's address —
 never learned, because CPU-injected TX sets `LEARN_DIS` — is unknown unicast
 and floods to every node. The pin has been removed from `0004`.
 
-**Open — BMC unicast floods to all node ports.** Every frame addressed to the
-BMC is delivered to all four node ports, so nodes can passively observe BMC
-management traffic. Deleting the pin does not cause this; the pin simply
-failed to prevent it. Root cause is not yet isolated: the entry key is
-(MAC, EFID, VID) with `ivl = true`, the pin wrote VID 0 which matches the
-hardware (every learned entry dumps without a VLAN), and EFID 1 matches the
-bridge number the trunk's own lookups are evidently using — replies to node1
-arriving on ge0 hit correctly. That points at the CPU port not being a valid
-destination for `l2_add_uc`, rather than at the key. The obvious probe,
-`bridge fdb add … dev node3 master static`, returns `File exists`: every DSA
-user port inherits the conduit MAC, so the bridge already holds a local entry
-(`c4:ff:84:10:00:ba dev node1 master br0 permanent`). Go at the hardware
-directly with `bridge fdb add … dev node3 self static`, or use a synthetic
-address the bridge has never seen. If the entry then shows up in `bridge fdb
-show dev node3 self`, static FDB works and only CPU-port targets are broken;
-if it does not, FDB offload in `0001` is not taking effect at all. `CONFIG_DYNAMIC_DEBUG=y` is absent from `linux_defconfig`, so
-the driver's `dev_dbg` traces of every FDB write are compiled out — enable it
-before the next round.
-
 **Closed — the ~207 Mbit/s ceiling is the OPNsense appliance.** Later runs
 reached 249 Mbit/s, and disconnecting one of the two trunk cables left
 throughput unchanged. A single member still offers a full gigabit, so a
@@ -256,6 +238,114 @@ switch, as the reference for ASIC line rate.
 
 (`ethtool` is **not** in the image; add `BR2_PACKAGE_ETHTOOL=y` before any
 future PHY/pause/counter debugging.)
+
+### Closed — BMC unicast flooded every node port: FDB entries keyed for the wrong learning mode (2026-09-07)
+
+Every frame addressed to the BMC was delivered to all four node ports, letting
+nodes passively observe BMC management traffic. The cause was **`0006`**: the
+driver wrote every FDB entry as IVL while the hardware, on a flat bridge, looks
+up SVL.
+
+`rtl8365mb_l2_add_uc()` set `uc.key.ivl = true` unconditionally. IVL is only
+meaningful for VLANs actually programmed into the 4K table, which happens
+solely from `rtl8365mb_vlan_4k_port_add()`. Every other VLAN — including
+VLAN-unaware traffic on vid 0 — keeps the chip default of shared learning on
+FID 0, which is also how the ASIC learns addresses on its own. So driver
+entries landed in a key space the lookup never consults. They read back
+perfectly from the L2 table while remaining invisible to forwarding, and the
+BMC's address stayed unknown unicast forever.
+
+The fix keys each entry the way the lookup that must find it will be keyed:
+`ivl = vid != 0`. Verified against hardware in both learning modes — the
+driver's keys now match what the ASIC learns by itself:
+
+| Bridge mode | ASIC learns | Driver writes |
+|-------------|-------------|---------------|
+| Flat `br0` (Mode 2) | `ivl=0 vid=0` | `ivl=0 vid=0` |
+| VLAN filtering (Mode 4) | `ivl=1 vid=10/20` | `ivl=1 vid=1/10/20` |
+
+**Measured, flat Mode 2, BMC pinging the gateway, all node ports linked:**
+
+| Port | Before (100 pings) | After (200 pings) |
+|------|--------------------|-------------------|
+| node1 | 10528 B | 0 B |
+| node2 | flooded | 0 B |
+| node3 | flooded | 0 B |
+| `eth0` (conduit) | 11046 B | 21464 B |
+
+`tcpdump -i eth0 icmp` on node1 captured 0 packets during the ping. Delete
+symmetry confirmed: a static entry added with `bridge fdb add … dev node3
+master static` appeared as `ivl=0 vid=0 dst=2 static=1` and left no residue
+after `bridge fdb del`.
+
+Sample every port across **one** ping burst, not one burst per port. Unknown
+unicast floods to every port in the domain, so the signature of the bug is a
+node port tracking the conduit byte for byte, and the signature of a healthy
+switch is every port at zero simultaneously. Sequential per-port sampling
+occasionally catches a single ARP broadcast (60–140 B on one port) that has
+nothing to do with this bug.
+
+**Why the earlier theory was wrong.** The previous entry in this log concluded
+the key was fine and blamed the CPU port for not being a valid `l2_add_uc`
+destination. Both halves were wrong: `dst=4` (CPU) was accepted and stored
+correctly all along, and the key was the only defect. The entries were present,
+correct-looking and inert — which is precisely why dumping the ASIC table
+through `bridge fdb show … self` (user ports only) could never reveal it. What
+finally isolated it was a temporary debug patch dumping every L2 entry per port
+*including the CPU port*, then comparing a learned entry against a
+driver-written one: identical but for `ivl`.
+
+**Diagnostic note.** Two things made this expensive. `bridge fdb show dev …
+self` cannot show CPU-port entries, so the table looked empty of the BMC's MAC
+when it was in fact populated. And `CONFIG_DYNAMIC_DEBUG` was off, compiling
+out the driver's `dev_dbg` traces of every FDB write. It is now `=y` in
+`linux_defconfig`.
+
+### Mode 4 (VLAN + LACP) — verified on hardware (2026-09-07)
+
+First hardware validation of Mode 4, which also exercises `0004`'s
+`rtl8365mb_lag_sync_uplink_vlans()` in the mirroring direction.
+
+Config: node1+node2 access VLAN 10, node3 access VLAN 20, `bond0` trunk with
+native VLAN 1 plus 10 and 20, `br0` on the native VLAN.
+
+| Check | Result |
+|-------|--------|
+| VLAN mirroring onto lag members | `LAG VLAN sync: mirrored 3 VLAN(s) from bond0 onto members 0x60` |
+| Node DHCP across the trunk | node1 leased `192.168.10.107` from the VLAN 10 router |
+| Intra-VLAN throughput (node1→node2) | 945 Mbit/s |
+| Cross-VLAN isolation, same subnet | `ping` and `arping` from node1 to node3 at `192.168.10.250`: no reply |
+| BMC control plane | unaffected on the native VLAN throughout |
+| Mode 4 → Mode 2 transition | `LAG VLAN sync: bond0 not VLAN filtering; members transparent` |
+
+The isolation test deliberately puts both nodes in the **same subnet**; testing
+across `192.168.10.x` / `192.168.20.x` proves nothing, because a router that
+routes between the two VLANs will answer and that is correct behaviour.
+
+Note that a flood test run in Mode 4 is meaningless: node ports are not members
+of the BMC's VLAN, so membership blocks the flood before the FDB is consulted.
+Mode 2 is the only configuration in which the `0006` fix is observable.
+
+### Observability — checks that passed without verifying anything (2026-09-08)
+
+`CONFIG_LOG_BUF_SHIFT=14` gave a 16 KiB kernel ring buffer that wrapped past
+the boot banner within ~34 s of uptime. Every `hw-validate` check asserting the
+*absence* of a boot message — the D section, plus the arbiter and switch probe
+lines — therefore reported results it had not verified: D1/D2/D3/D5 turned
+green on an empty buffer, while F1 and G1 turned red.
+
+Fixed on both sides. `CONFIG_LOG_BUF_SHIFT=17` (128 KiB) keeps the boot log for
+the life of a session, and `hw-validate` now gates every absence check on
+`boot_log_present()`, reporting SKIP rather than a pass it cannot justify.
+F1 and G1 gained dmesg-independent fallbacks (a bound device under
+`/sys/bus/platform/drivers/tpi-i2c-smi-arbiter`; the presence of DSA user
+ports), and the LAG fixup and VLAN sync checks distinguish "no LAG event in
+this buffer" from "the patch is missing". The bump also fixed B3, which had
+been reporting an unattributed WARN for the same reason.
+
+`0004`'s mirrored-VLAN message was `dev_dbg` while its transparent counterpart
+was `dev_info`, so Mode 4 success was invisible to the validator while Mode 2
+success was loud. Both are `dev_info` now.
 
 ### Adoption checklist (run when series appears in `git tag v6.x`)
 
@@ -271,6 +361,7 @@ future PHY/pause/counter debugging.)
 
 | Date | Kernel / tree | Series version | In mainline? | Local action |
 |------|---------------|----------------|--------------|--------------|
+| 2026-09-07 | 6.18.48 | FDB learning-mode keying (`net-dsa/0006`) | **No** | `ivl = vid != 0`; ends BMC unicast flooding to node ports. Mode 2 and Mode 4 both verified on hardware; candidate for upstream submission against `realtek_forward` |
 | 2026-08-31 | 6.18.38 | Mode 2 LACP data plane (`net-dsa/0003`–`0005`) | **No** | LACP RMA trap + VLAN filtering guard; dropped `offload_fwd_mark` clear-all (CPU hairpin). Node→WAN ASIC switched; 207–249 Mbit/s ceiling traced to the OPNsense appliance |
 | 2026-07-04 | 6.18.33 | HW LAG offload (`net-dsa/0003`) | **No** | `port_lag_*` + RTL8367C trunk tables for `ge0`+`ge1` bond |
 | 2026-07-03 | 6.18.33 | `realtek_forward` merged in net-next through `660a9e399ab0` | **No** | Backported locally as `net-dsa/0001`; old minimal `0005` dropped |
