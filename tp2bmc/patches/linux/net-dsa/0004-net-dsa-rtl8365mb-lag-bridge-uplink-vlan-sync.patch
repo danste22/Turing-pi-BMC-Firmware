@@ -173,7 +173,7 @@ diff -Naur a/drivers/net/dsa/realtek/rtl8365mb_lag.c b/drivers/net/dsa/realtek/r
 +	}
 +
 +	if (n_vlans)
-+		dev_dbg(priv->dev,
++		dev_info(priv->dev,
 +			 "LAG VLAN sync: mirrored %u VLAN(s) from %s onto members 0x%x\n",
 +			 n_vlans, bond->name, lag_pmask);
 +}
