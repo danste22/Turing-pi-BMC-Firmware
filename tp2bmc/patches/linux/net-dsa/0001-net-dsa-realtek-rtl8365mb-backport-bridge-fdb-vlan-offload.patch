@@ -7129,7 +7129,7 @@ index 2b9bd44..71124ec 100644
  	rc.lock_arg = priv;
  	priv->map = devm_regmap_init(dev, NULL, priv, &rc);
 @@ -325,6 +329,565 @@ void rtl83xx_reset_deassert(struct realtek_priv *priv)
- 	gpiod_set_value(priv->reset, false);
+ 	gpiod_set_value_cansleep(priv->reset, false);
  }
  
 +/**

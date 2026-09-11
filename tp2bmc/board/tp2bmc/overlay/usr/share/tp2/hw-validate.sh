@@ -1,5 +1,5 @@
 #!/bin/sh
-# Hardware validation — Buildroot 2026.02 / kernel 6.18.x
+# Hardware validation — Buildroot 2026.08 / kernel 6.18.x
 # On BMC (login shell PATH includes /usr/share/tp2):
 #   hw-validate.sh --mac aa:bb:cc:dd:ee:ff | tee /tmp/hw-validate.log
 #   EXPECTED_BOARD_MAC=… hw-validate.sh

@@ -1,1 +1,2 @@
-exec screen -S $(basename "$0") /dev/ttyS1 115200
+#!/bin/sh
+exec /usr/bin/node-console node1

@@ -5,10 +5,13 @@ buildroot-*
 .devcontainer/.bash_history
 dist
 wip
-tmp
 .idea
 
-# Local development notes (post-d9c55b7 docs, vendor PDFs, patch audits).
-dev-docs/
+# Local patch-audit helpers — keep locally, not in public PRs.
 tp2bmc/patches/linux/scripts/
-.patch-work
+
+# Maintainer notes and kernel-iteration tools — keep locally, not in public PRs.
+tp2bmc/patches/linux/KERNEL_UPGRADE_LOG.md
+tp2bmc/patches/uboot/UBOOT_UPGRADE_LOG.md
+tp2bmc/scripts/kernel-patch-tool.sh
+tp2bmc/scripts/kernel-history-tool.sh

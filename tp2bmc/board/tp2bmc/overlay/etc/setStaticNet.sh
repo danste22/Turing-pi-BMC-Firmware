@@ -25,8 +25,7 @@
 #
 # --- Security ---
 # Values from `tpi.cfg` / `tpi.ini` are still parsed with simple `sed`/`grep`;
-# do not inject shell metacharacters into those files (see F10 in
-# KERNEL_UPGRADE_LOG.md).
+# do not inject shell metacharacters into those files.
 
 # LAN-facing interface: v2.1+ DSA images use br0; CPU link is dsa (or eth0 pre-probe).
 set_static_net_iface() {

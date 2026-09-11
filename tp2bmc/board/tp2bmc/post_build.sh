@@ -222,7 +222,7 @@ if [ -f "${mconf}" ]; then
 		>>"${mconf}"
 fi
 
-# Rootfs size snapshot for dev-docs/rootfs-size-audit.md (NAND / 370 LEB budget).
+# Rootfs size snapshot (NAND / 370 LEB budget).
 if [[ -d "${TARGET_DIR}" ]]; then
 	{
 		echo "Turing Pi BMC — staged rootfs size (Buildroot TARGET_DIR)"

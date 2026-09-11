@@ -20,6 +20,7 @@ facilitate most of this functionality.
 - [Reporting issues \& requesting features](#reporting-issues--requesting-features)
 - [BMC chip specs](#bmc-chip-specs)
 - [Install firmware](#install-firmware)
+- [Default login, SSH, and firewall](#default-login-ssh-and-firewall)
 - [Build / Development](#build--development)
 - [Quickstart](#quickstart)
 - [Start DevContainer](#start-devcontainer)
@@ -52,7 +53,7 @@ visibility reasons, we will mainly use the issue tracker of this repository.
 - 128 MB DDR3 RAM
 - SPI NAND flash — **128 MB** (Macronix MX35LF1GE4AB) on V2.3 / V2.4 boards; **256 MB** (Macronix MX35LF2GE4AD) on V2.5.2 boards
 - EEPROM (24C02C)
-- 3 port Gigabit Ethernet Switch (RTL8370MB)
+- Ethernet switch: Realtek RTL8370MB (DSA: four node ports, two front-panel Gigabit RJ45s, one CPU/RMII uplink)
 - Ethernet PHYceiver (RTL8201F-VB-CG)
 - SD card slot
 
@@ -71,12 +72,24 @@ On our
 [website](https://docs.turingpi.com/docs/turing-pi2-bmc-firmware-upgrade)
 you can find more information on installing firmware.
 
+## Default login, SSH, and firewall
+
+SSH and the web UI use the **`turing`** operator account (password **`turing`**,
+`sudo` to root). **`PermitRootLogin no`**. Serial console and the USB-OTG getty
+still log in as **root** (password **`turing`**) for recovery.
+
+iptables is **default-deny** on INPUT/FORWARD (`S35iptables`). IPv4 allows loopback,
+established flows, **TCP 22** (SSH), **TCP 443** (bmcd / UI), and **UDP 5353**
+(mDNS). IPv6 allows loopback and established only. Outbound is unrestricted.
+
+Userland is linked with **full RELRO**. **`bmcd` still runs as root** (no AppArmor).
+
 ## Build / Development
 
 If you want to build the BMC firmware yourself, there is some preparation
 needed, which depends on your working environment.
 
-The build process uses [Buildroot](https://buildroot.org/) **2026.02.1** (see
+The build process uses [Buildroot](https://buildroot.org/) **2026.08** (see
 [`scripts/configure.sh`](scripts/configure.sh)); further documentation can be found
 [here](https://buildroot.org/downloads/manual/manual.html). Buildroot is not
 included in this repository and needs to be downloaded once before building.
@@ -178,10 +191,22 @@ the scripts directory.
 | init.sh      | This is the devcontainer initialization script, only used by the devcontainer on startup                                        |
 | sync.sh      | Only for macOS / darwin, synchronize changes to the host                                                                        |
 
+Build-time image checks live under [`tp2bmc/scripts/`](tp2bmc/scripts/) and
+[`tp2bmc/board/tp2bmc/uboot_build_dir.sh`](tp2bmc/board/tp2bmc/uboot_build_dir.sh).
+[`post_image.sh`](tp2bmc/board/tp2bmc/post_image.sh) runs them at the end of a
+firmware build:
+
+| Script | When |
+| ------ | ---- |
+| [`uboot_build_dir.sh`](tp2bmc/board/tp2bmc/uboot_build_dir.sh) | Sourced by `post_image.sh` / `post_build.sh` to resolve `output/build/uboot-<version>` |
+| [`validate_spi_boot_stack.sh`](tp2bmc/scripts/validate_spi_boot_stack.sh) | After U-Boot is built: `OF_EMBED`, legacy mkimage @ `0x8000`, in-tree patches present |
+| [`check_spi_boot_image.sh`](tp2bmc/scripts/check_spi_boot_image.sh) | Called by `validate_spi_boot_stack.sh` — inspects `u-boot-sunxi-with-spl.bin` SPI layout |
+| [`check_sdcard_install_image.sh`](tp2bmc/scripts/check_sdcard_install_image.sh) | After the SD image is generated — partition 2 EROFS matches `rootfs.erofs` |
+| [`check_nand_expectations.sh`](tp2bmc/scripts/check_nand_expectations.sh) | Not run by the build. Prints the U-Boot `ubi info` / `ubi read` checks to use after an SD install |
+
 U-Boot SPI layout (legacy mkimage @ `0x8000`, `OF_EMBED`, patches present) is
-checked by [`tp2bmc/scripts/validate_spi_boot_stack.sh`](tp2bmc/scripts/validate_spi_boot_stack.sh).
-`post_image.sh` runs it at the end of a firmware build. In the DevContainer,
-after a build:
+checked by [`validate_spi_boot_stack.sh`](tp2bmc/scripts/validate_spi_boot_stack.sh).
+In the DevContainer, after a build:
 
 ```shell
 BUILD_DIR=/work/buildroot/output/build \
@@ -363,10 +388,7 @@ The build script also provides additional arguments.
 git build --help
 ```
 
-The .gitignore allows for two working directories while developing.
-
-- tmp
-- wip
+The .gitignore allows a `wip` working directory while developing.
 
 ### BMC hardware overview
 
@@ -375,8 +397,9 @@ Device trees live under [`tp2bmc/board/tp2bmc/`](tp2bmc/board/tp2bmc/): common
 board variants
 [`sun8i-t113s-turing-pi2-v2.4.dts`](tp2bmc/board/tp2bmc/sun8i-t113s-turing-pi2-v2.4.dts),
 [`sun8i-t113s-turing-pi2-v2.5.dts`](tp2bmc/board/tp2bmc/sun8i-t113s-turing-pi2-v2.5.dts),
-[`sun8i-t113s-turing-pi2-v2.5.1.dts`](tp2bmc/board/tp2bmc/sun8i-t113s-turing-pi2-v2.5.1.dts).
-The FIT reuses the **v2.5.1** DTB for **v2.5.2** hardware ([`turing-pi2.its`](tp2bmc/board/tp2bmc/turing-pi2.its)).
+[`sun8i-t113s-turing-pi2-v2.5.1.dts`](tp2bmc/board/tp2bmc/sun8i-t113s-turing-pi2-v2.5.1.dts),
+[`sun8i-t113s-turing-pi2-v2.5.2.dts`](tp2bmc/board/tp2bmc/sun8i-t113s-turing-pi2-v2.5.2.dts).
+The FIT selects **`config-v2.5.2`** and the **v2.5.2** DTB when EEPROM `hw_version` says so ([`turing-pi2.its`](tp2bmc/board/tp2bmc/turing-pi2.its)).
 
 #### Block diagram
 
@@ -473,8 +496,7 @@ uplink validation below.
 > whatever the upstream router can route, not what the switch can forward. On
 > the lab OPNsense appliance that is 207–249 Mbit/s, and it does not change
 > when one of the two trunk cables is pulled. Benchmark **node→node** instead
-> to see ASIC line rate; see `KERNEL_UPGRADE_LOG.md` → *Mode 2 — LACP data
-> plane*.
+> to see ASIC line rate.
 
 LACP control frames stay in the kernel bonding driver; data frames hash across
 `ge0`+`ge1` in hardware once the trunk + bridge fixup is active.
@@ -592,7 +614,9 @@ vlans=10,20
 ```
 
 LACP bond + per-port VLAN isolation. Use `[port.bond0]` for the uplink trunk
-(not `ge0`/`ge1` individually).
+(not `ge0`/`ge1` individually). After apply, **`br0` itself** keeps the uplink
+trunk’s **native VLAN** (default **1**) as **pvid untagged**, so BMC host
+traffic stays on VLAN 1.
 
 | OPNsense side | BMC side |
 | ------------- | -------- |
@@ -622,6 +646,7 @@ bridge link                                      # node* + bond0 on br0
 dmesg | grep 'LAG bridge uplink fixup'           # HW offload active
 # On a powered node: arping -c 3 -I eth0 <gateway>  — expect replies
 sh /usr/share/tp2/uplink-hairpin-test.sh <gateway>  # eth0 counters stay flat
+sh /usr/share/tp2/hw-validate.sh                  # onboard checks; optional --mac
 ```
 
 Revert to flat: `tp2-net-config reset` (removes bond, restores `00-br0-flat`,
@@ -696,7 +721,7 @@ cat /proc/net/bonding/bond0
 If you add VLAN 10/20/30 on node ports, create matching VLANs on OPNsense (**Interfaces → VLANs** on `lagg0`, or VLAN parent = `lagg0`) and trunk them on the LAGG — only needed when moving beyond flat-L2 bond testing.
 
 **Packet capture** — use **`tcpdump -i br0`**, **`tcpdump -i ge0`**, or
-**`tcpdump -i nodeN`**, not the abstract **`dsa`** master (Buildroot **libpcap 1.10.5**
+**`tcpdump -i nodeN`**, not the abstract **`dsa`** master (Buildroot **libpcap 1.10.6**
 does not support the **`rtl8_4`** DSA tag on the CPU conduit).
 
 Kernel/DSA patch series live under [`tp2bmc/patches/linux/`](tp2bmc/patches/linux/); maintainer-only upgrade notes are **not** in the public tree.
@@ -708,7 +733,6 @@ Kernel/DSA patch series live under [`tp2bmc/patches/linux/`](tp2bmc/patches/linu
 **GPIO SMI bitbang** on the same pins (**PE12** = SCK, **PE13** = SDA), with
 **`tpi-i2c-smi-arbiter`** muxing between HW I²C (EEPROM / RTC) and SMI traffic.
 Kernel patches live under [`tp2bmc/patches/linux/tp2/tpi-smi-mux/`](tp2bmc/patches/linux/tp2/tpi-smi-mux/).
-Maintainer upgrade notes (including upstream **`realtek_forward`** monitor): [`KERNEL_UPGRADE_LOG.md`](tp2bmc/patches/linux/KERNEL_UPGRADE_LOG.md).
 
 **Fan control**
 
@@ -737,6 +761,9 @@ refers to **PD3+N**.
 - **BMC console**: **`serial0` → `&uart3`** (UART table below).
 - **PHY reset**: **PE10** on `&mdio` `rtl8201f`.
 - **Switch reset**: **PG13** (v2.4) vs **PG3** (v2.5.x) on `&ethernet_switch`.
+  U-Boot only **releases** that line. It does not program port isolation; Linux
+  DSA owns the switch after boot. Until then the ASIC default-forwards (enough
+  for recovery DHCP; the two RJ45s may be bridged).
 - **RMII**: **PE0–PE9** `emac` — see **`rmii_pe_pins`** in the same
   **`sun8i-t113s.dtsi`** as the UART mux (same kernel tree as the **Versions defined** table below).
 
@@ -754,7 +781,7 @@ The BMC runs **without** an SD card. When a card is present, [`S05sd-logs`](tp2b
 
 Mux lives in **`arch/arm/boot/dts/allwinner/sun8i-t113s.dtsi`** for the **pinned
 kernel** ([Versions defined in this repository](#versions-defined-in-this-repository)).
-Use a checkout under **`tmp/`** or **`output/build/linux-<version>/`** and grep
+Use a checkout under **`output/build/linux-<version>/`** and grep
 for `uart*_…_pins`. Enabled in
 [`sun8i-t113s-turing-pi2.dtsi`](tp2bmc/board/tp2bmc/sun8i-t113s-turing-pi2.dtsi).
 
@@ -768,7 +795,7 @@ for `uart*_…_pins`. Enabled in
 
 `serial0` is **115200 8N1** (`stdout-path`). Pinctrl lists **TX then RX**.
 
-**Node serial helpers:** [`overlay/usr/bin/node1` … `node4`](tp2bmc/board/tp2bmc/overlay/usr/bin/) run **GNU `screen`** on `ttyS1`–`ttyS4` at **115200** (`screen /dev/ttyS* 115200`). Exit with **Ctrl-A**, then **\\** (quit) or **k** (kill); **Ctrl-A** **d** detaches. **BusyBox `microcom`** is not used for node consoles: without **`-X`** output is garbled on binary-heavy RK UART traffic; with **`-X`** there is no clean exit (Ctrl-X is disabled). If **`bmcd`** holds the UART, stop it before attaching (see `dev-docs/node1-rk1-bmc-debug.md`, local).
+**Node serial helpers:** [`overlay/usr/bin/node1` … `node4`](tp2bmc/board/tp2bmc/overlay/usr/bin/) call [`node-console`](tp2bmc/board/tp2bmc/overlay/usr/bin/node-console), which runs **GNU `screen`** on `ttyS1`–`ttyS4` at **115200**. A second `nodeN` **joins the existing session** (`screen -x`, or `-r` if it was detached) instead of opening another one on the same UART. Exit with **Ctrl-A**, then **\\** (quit) or **k** (kill); **Ctrl-A** **d** detaches. **BusyBox `microcom`** is not used for node consoles: without **`-X`** output is garbled on binary-heavy RK UART traffic; with **`-X`** there is no clean exit (Ctrl-X is disabled). If **`bmcd`** holds the UART, stop it before attaching.
 
 **Netconsole (#180):** Linux ships **`CONFIG_NETCONSOLE`** with **dynamic** targets — the collector address is **not** fixed at compile time.
 
@@ -866,6 +893,11 @@ Read-only in Linux. Layout / burn: [`tp2bmc/board/tp2bmc/uboot.env`](tp2bmc/boar
 
 U-Boot picks the **FIT config** from **`eeprom_ver`** ([`turing-pi2.its`](tp2bmc/board/tp2bmc/turing-pi2.its)); corrupt EEPROM can load the wrong DTB.
 
+The EEPROM MAC is **authoritative and read-only**. U-Boot programs it onto the
+EMAC (`local-mac-address` / `ethaddr`); Linux copies it onto **`br0` before
+DHCP**. The SoC **SID** is used only when the EEPROM has no valid unicast MAC.
+This firmware never writes the EEPROM.
+
 ### BMC rootfs software inventory
 
 The BMC image is a **Buildroot** rootfs plus this repo’s **`BR2_EXTERNAL`** (`tp2bmc/`). There are two useful views of “what is installed”:
@@ -876,26 +908,26 @@ The BMC image is a **Buildroot** rootfs plus this repo’s **`BR2_EXTERNAL`** (`
 #### Versions defined in this repository
 
 **Platform baseline:** production images before the **2026.02** upgrade used **Buildroot
-2024.05.1** and **Linux 6.8.12**. The current branch targets **Buildroot 2026.02.1** and
-**Linux 6.18.27** ([#235](https://github.com/turing-machines/BMC-Firmware/issues/235)
+2024.05.1** and **Linux 6.8.12**. The current branch targets **Buildroot 2026.08** and
+**Linux 6.18.50** ([#235](https://github.com/turing-machines/BMC-Firmware/issues/235)
 firmware-complete on this line).
 
 | Component                              | Where the version is pinned                                                                                                                                            |
 | -------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| **Buildroot**                          | **`2026.02.1`** in [`scripts/configure.sh`](scripts/configure.sh) (`BUILDROOT_VER`)                                                                                    |
-| **Linux kernel**                       | **`6.18.48`** in [`tp2bmc/configs/tp2bmc_defconfig`](tp2bmc/configs/tp2bmc_defconfig) (`BR2_LINUX_KERNEL_CUSTOM_VERSION_VALUE`)                                        |
-| **U-Boot**                             | **2026.07** in [`tp2bmc/configs/tp2bmc_defconfig`](tp2bmc/configs/tp2bmc_defconfig) (`BR2_TARGET_UBOOT_CUSTOM_VERSION_VALUE`) plus [`tp2bmc/patches/uboot/`](tp2bmc/patches/uboot/) |
+| **Buildroot**                          | **`2026.08`** in [`scripts/configure.sh`](scripts/configure.sh) (`BUILDROOT_VER`)                                                                                       |
+| **Linux kernel**                       | **`6.18.50`** in [`tp2bmc/configs/tp2bmc_defconfig`](tp2bmc/configs/tp2bmc_defconfig) (`BR2_LINUX_KERNEL_CUSTOM_VERSION_VALUE`)                                        |
+| **U-Boot**                             | **2026.07** in [`tp2bmc/configs/tp2bmc_defconfig`](tp2bmc/configs/tp2bmc_defconfig) (`BR2_TARGET_UBOOT_CUSTOM_VERSION_VALUE`) plus in-tree patches under [`tp2bmc/patches/uboot/`](tp2bmc/patches/uboot/). On **v2.5+** boards with a valid EEPROM, U-Boot expands the `ubi` window to **255 MiB** so the installer layout attaches; v2.3/v2.4 keep **127 MiB**. |
 | **bmcd**                               | `v2.3.4` in [`tp2bmc/package/bmcd/bmcd.mk`](tp2bmc/package/bmcd/bmcd.mk) (`BMCD_VERSION`)                                                                              |
 | **BMC-UI** (static Web UI)             | `v3.3.6` in [`tp2bmc/package/bmc-ui/bmc-ui.mk`](tp2bmc/package/bmc-ui/bmc-ui.mk) (`BMC_UI_VERSION`)                                                                    |
 | **BMC-Installer** (recovery / SD init) | Git `eef33d0f72728831650ab4d04b5225993f002b31` in [`tp2bmc/package/bmc_installer/bmc_installer.mk`](tp2bmc/package/bmc_installer/bmc_installer.mk)                     |
 | **`tpi` CLI**                          | Git `f9a5d58f42428f861693bdeac5acc0171872d807` in [`tp2bmc/package/tpi/tpi.mk`](tp2bmc/package/tpi/tpi.mk) (`TPI_VERSION`)                                             |
 | **Raspberry Pi `usbboot` helper**      | `2021.07.01` in [`tp2bmc/package/raspberrypi-target-usbboot/raspberrypi-target-usbboot.mk`](tp2bmc/package/raspberrypi-target-usbboot/raspberrypi-target-usbboot.mk)   |
 
-Other user-visible tools (**OpenSSH**, **Chrony**, **tcpdump**, **GNU screen**, **strace**, **gdbserver** (host cross-gdb required), **BusyBox** (including **syslogd** with optional remote forwarding), **Avahi**, **mtd-utils**, **e2fsprogs**, etc.) are **not** re-versioned in this repo: their versions come from the **Buildroot release tarball** you unpack with `./scripts/configure.sh`. To see the exact upstream version Buildroot selected for, say, OpenSSH, open `buildroot/package/openssh/openssh.mk` in your Buildroot tree after unpacking, or inspect the matching directory under `output/build/` after a build (e.g. `openssh-9.x`).
+Other user-visible tools (**OpenSSH**, **Chrony**, **tcpdump**, **GNU screen**, **htop**, **tree**, **BusyBox** (including **syslogd** with optional remote forwarding and a **tree** applet if GNU tree is dropped), **Avahi**, **mtd-utils**, **e2fsprogs**, **sudo**, **iptables**, etc.) are **not** re-versioned in this repo: their versions come from the **Buildroot release tarball** you unpack with `./scripts/configure.sh`. To see the exact upstream version Buildroot selected for, say, OpenSSH, open `buildroot/package/openssh/openssh.mk` in your Buildroot tree after unpacking, or inspect the matching directory under `output/build/` after a build (e.g. `openssh-9.x`). **strace** and **gdbserver** are not in this image (they were never on [master](https://github.com/turing-machines/BMC-Firmware/blob/master/tp2bmc/configs/tp2bmc_defconfig)).
 
 #### Direct `BR2_PACKAGE_*` selections in `tp2bmc_defconfig`
 
-The file [`tp2bmc/configs/tp2bmc_defconfig`](tp2bmc/configs/tp2bmc_defconfig) lists every **explicit** `BR2_PACKAGE_*=y` option enabled for this product (Avahi, Bash, Chrony, Collectd, OpenSSH, **tcpdump**, **screen**, **strace**, **gdb** gdbserver-only, `ifupdown-ng`, `i2c-tools`, etc.). **Python 3** is omitted on this line (~15 MiB under `usr/lib/python3.*` alone; revisit for 256 MiB NAND or a slimmer runtime — [#160](https://github.com/turing-machines/BMC-Firmware/issues/160)). Anything pulled in only as a **dependency** of those packages will also appear under `output/build/` but may not have its own `BR2_PACKAGE_*=y` line.
+The file [`tp2bmc/configs/tp2bmc_defconfig`](tp2bmc/configs/tp2bmc_defconfig) lists every **explicit** `BR2_PACKAGE_*=y` option enabled for this product (Avahi, Bash, Chrony, Collectd, OpenSSH, **tcpdump**, **screen**, **htop**, **tree**, **sudo**, **iptables**, `libgpiod2` + tools, `ifupdown-ng`, `i2c-tools`, etc.). **`gpioinfo` / `gpiodetect`** come from **libgpiod 2.x**; **bmcd** talks to `/dev/gpiochip*` through its Rust `gpiod` crate, not the C library. **Python 3** is omitted on this line (~15 MiB under `usr/lib/python3.*` alone; revisit for 256 MiB NAND or a slimmer runtime — [#160](https://github.com/turing-machines/BMC-Firmware/issues/160)). Anything pulled in only as a **dependency** of those packages will also appear under `output/build/` but may not have its own `BR2_PACKAGE_*=y` line.
 
 #### Full listing (every Buildroot build directory)
 

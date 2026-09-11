@@ -14,7 +14,7 @@
 set -eo pipefail
 
 # Buildroot Version
-BUILDROOT_VER="2026.05.2"
+BUILDROOT_VER="2026.08"
 
 # Save current directory
 CWD=$(pwd)
