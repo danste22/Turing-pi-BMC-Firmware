@@ -11,6 +11,9 @@ start() {
 
     [ ! -f "$CERTFILE" ] || [ ! -f "$KEYFILE" ] && /etc/bmcd/generate_self_signedx509.sh 
 
+    # bmcd needs GPIO, I2C, USB gadget and node-power sysfs. A dedicated
+    # user would need those device nodes plus broad sysfs; that is equivalent
+    # to root. Stay root rather than a fake drop.
     start-stop-daemon --start --quiet --background --make-pidfile --pidfile "$PIDFILE" --no-close \
         --exec "$BIN" -- --config "/etc/bmcd/config.yaml"
 

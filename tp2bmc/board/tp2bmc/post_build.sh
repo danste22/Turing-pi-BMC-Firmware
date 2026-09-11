@@ -209,6 +209,11 @@ fi
 
 # USB-gadget serial console: run a getty only while /dev/ttyGS0 exists.
 chmod 755 "${TARGET_DIR}/usr/bin/mdev-ttyGS0-getty" 2>/dev/null || true
+chmod 755 "${TARGET_DIR}/etc/init.d/S11bmc-otg" 2>/dev/null || true
+chmod 755 "${TARGET_DIR}/etc/init.d/S35iptables" 2>/dev/null || true
+if [ -f "${TARGET_DIR}/etc/sudoers.d/turing" ]; then
+	chmod 440 "${TARGET_DIR}/etc/sudoers.d/turing"
+fi
 if [ -f "${mconf}" ]; then
 	sed -i '/# mdev-ttyGS0-getty/d' "${mconf}"
 	sed -i '/ttyGS0.*mdev-ttyGS0-getty/d' "${mconf}"

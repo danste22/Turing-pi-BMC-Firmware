@@ -1,0 +1,17 @@
+# Diagnostics vs production package split (unstripped; measure after a baseline
+# build against the 45880 KiB EROFS budget in genimage.cfg).
+#
+# In tp2bmc_defconfig today:
+#   tcpdump strace gdbserver htop evtest sshpass
+# hw-validate.sh and the node1-node4 console wrappers use several of these.
+#
+# Production trim: copy tp2bmc_defconfig to tp2bmc_production_defconfig and
+# drop the lines below (or # BR2_PACKAGE_FOO is not set). Keep them for a
+# diagnostics / factory image.
+#
+# BR2_PACKAGE_TCPDUMP=y
+# BR2_PACKAGE_STRACE=y
+# BR2_PACKAGE_GDB_SERVER=y
+# BR2_PACKAGE_HTOP=y
+# BR2_PACKAGE_EVTEST=y
+# BR2_PACKAGE_SSHPASS=y
