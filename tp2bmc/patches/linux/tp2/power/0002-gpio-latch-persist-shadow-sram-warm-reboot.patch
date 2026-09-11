@@ -1,3 +1,4 @@
+From a4c025b40a4d4cb195f7b883c2738309cb7302b8 Mon Sep 17 00:00:00 2001
 From: Sven Rademakers <sven@turingpi.com>
 Date: Sat, 9 May 2026 13:40:00 +0200
 Subject: [PATCH 2/2] gpio: latch: persist shadow in SoC SRAM across warm reboot
@@ -12,9 +13,12 @@ contract; not proposed for generic mainline gpio-latch as-is.
 
 Signed-off-by: Sven Rademakers <sven@turingpi.com>
 ---
-diff -Naur a/drivers/gpio/gpio-latch.c b/drivers/gpio/gpio-latch.c
---- a/drivers/gpio/gpio-latch.c	2026-07-20 01:33:15
-+++ b/drivers/gpio/gpio-latch.c	2026-07-20 01:33:15
+ drivers/gpio/gpio-latch.c                          |   68 +++++++++++++++++++++++++++++++++++++---
+ 1 file changed, 63 insertions(+), 5 deletions(-)
+
+diff --git a/drivers/gpio/gpio-latch.c b/drivers/gpio/gpio-latch.c
+--- a/drivers/gpio/gpio-latch.c
++++ b/drivers/gpio/gpio-latch.c
 @@ -42,6 +42,7 @@
  #include <linux/err.h>
  #include <linux/gpio/consumer.h>

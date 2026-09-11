@@ -1,6 +1,7 @@
+From 723afd756caab2e97b4ecaa2c622279acab9d9d5 Mon Sep 17 00:00:00 2001
 From: Sven Rademakers <sven@turingpi.com>
 Date: Sat, 05 Jul 2026 17:35:39 +0200
-Subject: [PATCH 3/5] net: dsa: rtl8365mb: add hardware LAG / trunk offload
+Subject: [PATCH 3/6] net: dsa: rtl8365mb: add hardware LAG / trunk offload
 
 Add DSA port_lag_join/leave/change hooks and program the RTL8367-class
 trunk tables so two user ports can hash in hardware when enslaved to a
@@ -26,18 +27,25 @@ so dsa_port_simple_hsr_* are not declared).
 
 Signed-off-by: Sven Rademakers <sven@turingpi.com>
 ---
-diff -Naur a/drivers/net/dsa/realtek/Makefile b/drivers/net/dsa/realtek/Makefile
---- a/drivers/net/dsa/realtek/Makefile	2026-07-05 17:35:39
-+++ b/drivers/net/dsa/realtek/Makefile	2026-07-20 01:31:38
+ drivers/net/dsa/realtek/Makefile                   |    1 +
+ drivers/net/dsa/realtek/realtek.h                  |    5 +
+ drivers/net/dsa/realtek/rtl8365mb_lag.c            |  444 ++++++++++++++++++++++++++++++++++++++++
+ drivers/net/dsa/realtek/rtl8365mb_lag.h            |   15 +
+ drivers/net/dsa/realtek/rtl8365mb_main.c           |   11 +
+ 5 files changed, 474 insertions(+), 2 deletions(-)
+
+diff --git a/drivers/net/dsa/realtek/Makefile b/drivers/net/dsa/realtek/Makefile
+--- a/drivers/net/dsa/realtek/Makefile
++++ b/drivers/net/dsa/realtek/Makefile
 @@ -20,4 +20,5 @@
  		  rtl8365mb_table.o \
  		  rtl8365mb_vlan.o \
  		  rtl8365mb_l2.o \
 +		  rtl8365mb_lag.o \
  # end of rtl8365mb-objs
-diff -Naur a/drivers/net/dsa/realtek/realtek.h b/drivers/net/dsa/realtek/realtek.h
---- a/drivers/net/dsa/realtek/realtek.h	2026-07-05 17:35:39
-+++ b/drivers/net/dsa/realtek/realtek.h	2026-07-20 01:31:38
+diff --git a/drivers/net/dsa/realtek/realtek.h b/drivers/net/dsa/realtek/realtek.h
+--- a/drivers/net/dsa/realtek/realtek.h
++++ b/drivers/net/dsa/realtek/realtek.h
 @@ -97,6 +97,11 @@
  	int			vlan_enabled;
  	int			vlan4k_enabled;
@@ -50,9 +58,10 @@ diff -Naur a/drivers/net/dsa/realtek/realtek.h b/drivers/net/dsa/realtek/realtek
  	char			buf[4096];
  	void			*chip_data; /* Per-chip extra variant data */
  };
-diff -Naur a/drivers/net/dsa/realtek/rtl8365mb_lag.c b/drivers/net/dsa/realtek/rtl8365mb_lag.c
---- a/drivers/net/dsa/realtek/rtl8365mb_lag.c	1970-01-01 01:00:00
-+++ b/drivers/net/dsa/realtek/rtl8365mb_lag.c	2026-07-20 01:33:37
+diff --git a/drivers/net/dsa/realtek/rtl8365mb_lag.c b/drivers/net/dsa/realtek/rtl8365mb_lag.c
+new file mode 100644
+--- /dev/null
++++ b/drivers/net/dsa/realtek/rtl8365mb_lag.c
 @@ -0,0 +1,444 @@
 +// SPDX-License-Identifier: GPL-2.0
 +/* Hardware LAG / trunk offload for rtl8365mb-class switches (RTL8367C ASIC API)
@@ -498,9 +507,10 @@ diff -Naur a/drivers/net/dsa/realtek/rtl8365mb_lag.c b/drivers/net/dsa/realtek/r
 +
 +	return ret;
 +}
-diff -Naur a/drivers/net/dsa/realtek/rtl8365mb_lag.h b/drivers/net/dsa/realtek/rtl8365mb_lag.h
---- a/drivers/net/dsa/realtek/rtl8365mb_lag.h	1970-01-01 01:00:00
-+++ b/drivers/net/dsa/realtek/rtl8365mb_lag.h	2026-07-20 01:33:37
+diff --git a/drivers/net/dsa/realtek/rtl8365mb_lag.h b/drivers/net/dsa/realtek/rtl8365mb_lag.h
+new file mode 100644
+--- /dev/null
++++ b/drivers/net/dsa/realtek/rtl8365mb_lag.h
 @@ -0,0 +1,15 @@
 +/* SPDX-License-Identifier: GPL-2.0 */
 +#ifndef _RTL8365MB_LAG_H
@@ -517,9 +527,9 @@ diff -Naur a/drivers/net/dsa/realtek/rtl8365mb_lag.h b/drivers/net/dsa/realtek/r
 +int rtl8365mb_port_lag_change(struct dsa_switch *ds, int port);
 +
 +#endif /* _RTL8365MB_LAG_H */
-diff -Naur a/drivers/net/dsa/realtek/rtl8365mb_main.c b/drivers/net/dsa/realtek/rtl8365mb_main.c
---- a/drivers/net/dsa/realtek/rtl8365mb_main.c	2026-07-05 17:35:39
-+++ b/drivers/net/dsa/realtek/rtl8365mb_main.c	2026-07-20 01:33:37
+diff --git a/drivers/net/dsa/realtek/rtl8365mb_main.c b/drivers/net/dsa/realtek/rtl8365mb_main.c
+--- a/drivers/net/dsa/realtek/rtl8365mb_main.c
++++ b/drivers/net/dsa/realtek/rtl8365mb_main.c
 @@ -106,6 +106,7 @@
  #include "rtl83xx.h"
  #include "rtl8365mb_l2.h"

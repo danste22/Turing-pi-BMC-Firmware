@@ -1,7 +1,7 @@
 # TP2 BMC — kernel patch log & production migration
 
 Maintainer notes for Linux **6.18.48** (Buildroot `tp2bmc_defconfig`).  
-Patch inventory: `scripts/kernel-patch-tool.sh inventory`.
+Patch inventory: `tp2bmc/scripts/kernel-patch-tool.sh inventory`.
 
 **See also:** [`dev-docs/tp2-network-uboot-kernel.md`](../../../dev-docs/tp2-network-uboot-kernel.md) — U-Boot vs kernel network split, SMI migration gap, open U-Boot follow-ups.
 
@@ -301,10 +301,10 @@ when it was in fact populated. And `CONFIG_DYNAMIC_DEBUG` was off, compiling
 out the driver's `dev_dbg` traces of every FDB write. It is now `=y` in
 `linux_defconfig`.
 
-### Mode 4 (VLAN + LACP) — verified on hardware (2026-09-07)
+### Mode 4 (VLAN + LACP) — verified on hardware (2026-09-07, reconfirmed 2026-09-09)
 
-First hardware validation of Mode 4, which also exercises `0004`'s
-`rtl8365mb_lag_sync_uplink_vlans()` in the mirroring direction.
+Exercises `0004`'s `rtl8365mb_lag_sync_uplink_vlans()` in the mirroring
+direction.
 
 Config: node1+node2 access VLAN 10, node3 access VLAN 20, `bond0` trunk with
 native VLAN 1 plus 10 and 20, `br0` on the native VLAN.
@@ -312,15 +312,30 @@ native VLAN 1 plus 10 and 20, `br0` on the native VLAN.
 | Check | Result |
 |-------|--------|
 | VLAN mirroring onto lag members | `LAG VLAN sync: mirrored 3 VLAN(s) from bond0 onto members 0x60` |
-| Node DHCP across the trunk | node1 leased `192.168.10.107` from the VLAN 10 router |
-| Intra-VLAN throughput (node1→node2) | 945 Mbit/s |
-| Cross-VLAN isolation, same subnet | `ping` and `arping` from node1 to node3 at `192.168.10.250`: no reply |
+| Node DHCP across the trunk | node1 `192.168.10.107` (VLAN 10); node3 `192.168.20.102` (`ip addr` on the node, 2026-09-09) |
+| Intra-VLAN throughput (node1→node2) | 945 Mbit/s (2026-09-07) |
+| Cross-subnet ping node1→node3 | `192.168.10.107` → `192.168.20.102`: 100% loss |
+| Same-subnet ASIC isolation | node3 secondary `192.168.10.250/24`; node1 `ping`/`arping` from `192.168.10.107`: 0 replies (2026-09-10). ASIC does not flood VLAN 10 onto the VLAN 20 access port. |
 | BMC control plane | unaffected on the native VLAN throughout |
 | Mode 4 → Mode 2 transition | `LAG VLAN sync: bond0 not VLAN filtering; members transparent` |
 
-The isolation test deliberately puts both nodes in the **same subnet**; testing
-across `192.168.10.x` / `192.168.20.x` proves nothing, because a router that
-routes between the two VLANs will answer and that is correct behaviour.
+**Apply order (2026-09-09).** `tp2-net-config apply` used to `ifup` first (LAG
+sync while `vlan_filtering=0` → `members transparent`), then program the Linux
+VLAN table. `0004` only copies `bond0`'s VID set onto `ge0`/`ge1` on
+`port_bridge_join`. Nodes then leased native `192.168.1.x`. Workaround: bounce
+an unused `br0` member (`node4` leave/join). Overlay now calls
+`tp2-lag-bridge-fixup-refresh.sh vlan-sync` after `apply_vlans`.
+
+The ASIC isolation test puts both nodes in the **same subnet** on different
+access VLANs. A `192.168.10.x` ↔ `192.168.20.x` ping goes to the router first
+and does not prove L2 membership.
+
+**BMC native VLAN after LAG VLAN sync.** `bridge vlan show` on a failed Mode 4
+apply had `br0` VLAN 1 *without* `PVID Egress Untagged`. Host ARP left untagged
+and replies stayed tagged (`ip neigh … FAILED`). Cause: `apply_port_vlan`
+re-added `vid 1 self` on `br0` after `apply_br0_host_pvid`, which strips those
+flags. Native VID is now added as `pvid untagged self`, and host PVID is
+applied last.
 
 Note that a flood test run in Mode 4 is meaningless: node ports are not members
 of the BMC's VLAN, so membership blocks the flood before the FDB is consulted.
@@ -349,7 +364,7 @@ success was loud. Both are `dev_info` now.
 
 ### Adoption checklist (run when series appears in `git tag v6.x`)
 
-1. `kernel-history-tool.sh` / manual: confirm files in `drivers/net/dsa/realtek/`, `net/dsa/tag_rtl8_4.c` match series.
+1. `tp2bmc/scripts/kernel-patch-tool.sh history` (or the same checks by hand): confirm files in `drivers/net/dsa/realtek/`, `net/dsa/tag_rtl8_4.c` match series.
 2. Bump `BR2_LINUX_KERNEL_CUSTOM_VERSION_VALUE` to that release.
 3. **Remove** local `net-dsa/0001-net-dsa-realtek-rtl8365mb-backport-bridge-fdb-vlan-offload.patch`.
 4. **Keep** local `net-dsa/0002` until `chip_id == 0x6368` probe works without it.
@@ -361,6 +376,8 @@ success was loud. Both are `dev_info` now.
 
 | Date | Kernel / tree | Series version | In mainline? | Local action |
 |------|---------------|----------------|--------------|--------------|
+| 2026-09-10 | 6.18.48 | Mode 4 same-subnet isolation | **No** | node3 `192.168.10.250` + `192.168.20.102`; node1 arping/ping `.250`: 0 replies |
+| 2026-09-09 | 6.18.48 | Mode 4 VLAN assign + LAG VLAN sync after apply | **No** | node1 `192.168.10.107`, node3 `192.168.20.102` after `node4` leave/join; apply now retriggers `vlan-sync` |
 | 2026-09-07 | 6.18.48 | FDB learning-mode keying (`net-dsa/0006`) | **No** | `ivl = vid != 0`; ends BMC unicast flooding to node ports. Mode 2 and Mode 4 both verified on hardware; candidate for upstream submission against `realtek_forward` |
 | 2026-08-31 | 6.18.38 | Mode 2 LACP data plane (`net-dsa/0003`–`0005`) | **No** | LACP RMA trap + VLAN filtering guard; dropped `offload_fwd_mark` clear-all (CPU hairpin). Node→WAN ASIC switched; 207–249 Mbit/s ceiling traced to the OPNsense appliance |
 | 2026-07-04 | 6.18.33 | HW LAG offload (`net-dsa/0003`) | **No** | `port_lag_*` + RTL8367C trunk tables for `ge0`+`ge1` bond |
