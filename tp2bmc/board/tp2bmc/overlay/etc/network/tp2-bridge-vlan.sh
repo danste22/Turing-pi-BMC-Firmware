@@ -140,7 +140,8 @@ apply_port_vlan() {
 		[ -n "$_vlans" ] || die "port.$_port trunk requires vlans="
 		bridge vlan add dev "$_port" vid "$_native" pvid untagged \
 			|| die "bridge vlan native $_port vid $_native"
-		bridge vlan add dev br0 vid "$_native" self 2>/dev/null || true
+		bridge vlan add dev br0 vid "$_native" pvid untagged self \
+			2>/dev/null || true
 		for _v in $(comma_to_space "$_vlans"); do
 			validate_vid "$_v"
 			[ "$_v" = "$_native" ] && continue
@@ -183,6 +184,13 @@ cmd_apply() {
 	for _p in $(list_port_sections); do
 		apply_port_vlan "$_p"
 	done
+
+	if [ "$_filtering" -eq 1 ] && [ -x /etc/network/tp2-lag-bridge-fixup-refresh.sh ]; then
+		/etc/network/tp2-lag-bridge-fixup-refresh.sh vlan-sync
+		for _p in $(list_port_sections); do
+			apply_port_vlan "$_p"
+		done
+	fi
 
 	log "applied $CONF"
 }

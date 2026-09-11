@@ -162,6 +162,25 @@ br0_has_ipv4() {
 	ip -4 addr show dev br0 2>/dev/null | grep -q 'inet '
 }
 
+br0_has_default_route() {
+	ip -4 route show default dev br0 2>/dev/null | grep -q . || \
+		ip -4 route show default 2>/dev/null | grep -q .
+}
+
+# udhcpc deconfig ("deleting routers") plus skipping apply_ip leaves br0
+# addressed but with no default route — SSH on-LAN still works.
+restore_br0_default_route() {
+	br0_has_default_route && return 0
+	_gw=$(cfg_get bridge gateway '')
+	if [ -z "$_gw" ]; then
+		_gw=$(awk '/^nameserver[ \t]+[0-9]/ { print $2; exit }' /etc/resolv.conf 2>/dev/null)
+	fi
+	[ -n "$_gw" ] || return 0
+	ip route replace default via "$_gw" dev br0 2>/dev/null || \
+		ip route add default via "$_gw" dev br0 2>/dev/null || return 0
+	log "restored default route via $_gw"
+}
+
 # True when 802.3ad has a real partner (not just link-up + lucky DHCP).
 lacp_is_ready() {
 	_b=${1:-bond0}
@@ -411,7 +430,11 @@ apply_port_vlan() {
 		[ -n "$_vlans" ] || die "port.$_port trunk mode requires vlans="
 		bridge vlan add dev "$_port" vid "$_native" pvid untagged \
 			|| die "bridge vlan native $_port vid $_native"
-		bridge vlan add dev br0 vid "$_native" self 2>/dev/null || true
+		# Must keep pvid untagged on br0 itself. `vid N self` without
+		# those flags strips them; host ARP then TX untagged and RX
+		# stays tagged (neigh FAILED, ping 192.168.1.1 dies).
+		bridge vlan add dev br0 vid "$_native" pvid untagged self \
+			2>/dev/null || true
 		for _v in $(comma_to_space "$_vlans"); do
 			validate_vid "$_v"
 			if [ "$_v" = "$_native" ]; then
@@ -475,6 +498,35 @@ apply_vlans() {
 
 	# Host stack on br0 needs a PVID when vlan_filtering=1 (DHCP/ARP from BMC).
 	if [ "$_filtering" -eq 1 ]; then
+		apply_br0_host_pvid
+		# 0004 LAG VLAN sync ran at ifup (filtering still 0). Retrigger
+		# after the VLAN table exists so ge0/ge1 get the trunk vids.
+		if [ -x /etc/network/tp2-lag-bridge-fixup-refresh.sh ]; then
+			/etc/network/tp2-lag-bridge-fixup-refresh.sh vlan-sync
+			# Second join refreshes frame filter now that PVID exists
+			# (pre-reorder 0004 left ge0/ge1 in TAGGED_ONLY).
+			/etc/network/tp2-lag-bridge-fixup-refresh.sh vlan-sync
+		fi
+		for _p in $(list_port_sections); do
+			apply_port_vlan "$_p"
+		done
+		# Bond slaves are not DSA bridge members, so VLAN 1 never
+		# reaches the CPU via the normal join path. An unused node
+		# port with the native PVID makes the core add the CPU.
+		_native=1
+		for _up in bond0 ge0 ge1; do
+			_mode=$(cfg_get "port.$_up" mode '' | tr 'A-Z' 'a-z')
+			if [ "$_mode" = "trunk" ]; then
+				_native=$(cfg_int "port.$_up" native 1)
+				break
+			fi
+		done
+		for _c in node4 node3 node2 node1; do
+			[ -z "$(cfg_get "port.$_c" mode '')" ] || continue
+			ip link show "$_c" 2>/dev/null | grep -q 'master br0' || continue
+			bridge vlan add dev "$_c" vid "$_native" pvid untagged 2>/dev/null || true
+			break
+		done
 		apply_br0_host_pvid
 	fi
 }
@@ -689,8 +741,9 @@ cmd_apply() {
 	# Modes 3/4: VLAN/PVID are not fully expressed in interfaces.d
 	apply_vlans
 
-	# Re-run addressing when VLAN filtering just came on (host PVID must exist
-	# before DHCP/ARP on br0). Mode 2 with no [port.*] skips this.
+	# Keep a lease obtained before vlan_filtering came on (Mode 4).
+	# apply_ip would flush br0 and DISCOVER again; with filtering on that
+	# often gets no reply even though the existing address still works.
 	_filtering=0
 	if cfg_bool bridge vlan_filtering 0; then
 		_filtering=1
@@ -699,7 +752,12 @@ cmd_apply() {
 		[ -n "$(cfg_get "port.$_p" mode '')" ] && _filtering=1
 	done
 	if [ "$_filtering" -eq 1 ]; then
-		apply_ip
+		if br0_has_ipv4; then
+			apply_dns_from_conf
+			restore_br0_default_route
+		else
+			apply_ip
+		fi
 	fi
 
 	apply_dns_from_conf

@@ -6,5 +6,5 @@ iface br0 inet dhcp
   bridge-ports node1 node2 node3 node4 ge0 ge1
   pre-up /etc/network/nfs_check
   pre-up /etc/network/set_br0_mac_pre_dhcp.sh
-  wait-delay 15
+  wait-delay 5
   hostname $(hostname)

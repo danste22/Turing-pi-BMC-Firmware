@@ -19,6 +19,32 @@ log() {
 	logger -t "${LOG_TAG}" "$*" 2>/dev/null || true
 }
 
+# 0004 copies bond0's VLAN DB onto ge0/ge1 only from port_bridge_join / lag
+# apply. tp2-net-config programs VLANs *after* those events, so the ASIC
+# stays "members transparent" unless a user port rejoins. Do not bounce
+# bond0 here — that tears LACP down.
+if [ "${1:-}" = "vlan-sync" ]; then
+	[ -e /sys/class/net/bond0 ] || exit 0
+	[ -e /sys/class/net/br0/bridge ] || exit 0
+	[ "$(cat /sys/class/net/br0/bridge/vlan_filtering 2>/dev/null)" = 1 ] || exit 0
+	ip link show bond0 2>/dev/null | grep -q 'master br0' || exit 0
+
+	_p=
+	for _c in node4 node3 node2 node1; do
+		if ip link show "$_c" 2>/dev/null | grep -q 'master br0'; then
+			_p=$_c
+			break
+		fi
+	done
+	[ -n "$_p" ] || exit 0
+
+	log "vlan-sync: $_p leave/join so ASIC copies bond0 VLAN DB"
+	ip link set "$_p" nomaster 2>/dev/null || exit 0
+	ip link set "$_p" master br0 2>/dev/null || true
+	ip link set "$_p" up 2>/dev/null || true
+	exit 0
+fi
+
 [ -e /sys/class/net/bond0 ] || exit 0
 [ -e /sys/class/net/br0 ] || exit 0
 ip link show br0 2>/dev/null | grep -q 'state UP' || exit 0
