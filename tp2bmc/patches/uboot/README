@@ -1,12 +1,10 @@
-U-Boot board and driver changes belong in the U-Boot tree, not here:
+U-Boot is built from upstream **v2026.07** plus patches under this tree.
 
-  https://github.com/danste22/Turing-pi-u-boot
-  local: ../turing-bmc-bootloader (branch feat/uboot-2026.04)
+  BR2_TARGET_UBOOT_CUSTOM_VERSION_VALUE="2026.07"
+  BR2_TARGET_UBOOT_PATCH = sunxi usb ubi i2c spl board tools
 
-Buildroot pulls a git pin via BR2_TARGET_UBOOT_CUSTOM_REPO_VERSION in
-tp2bmc/configs/tp2bmc_defconfig. After changing U-Boot, push to that repo
-and bump the pin — do not add BR2_TARGET_UBOOT_PATCH copies under tp2bmc/.
+Do not pin danste22/Turing-pi-u-boot from Buildroot. The fork at
+`../turing-bmc-bootloader` (branch `tp2-v2026.07`) is the working copy used
+to export these patches with `git format-patch`.
 
-The former tp2bmc/patches/uboot-2026.04/ directory was a transient
-workaround while the product pin lagged reference; it duplicated sources
-already in board/turing/pi2/ on the U-Boot fork.
+KEEP / SUBMIT / DROP is in `UBOOT_UPGRADE_LOG.md`.

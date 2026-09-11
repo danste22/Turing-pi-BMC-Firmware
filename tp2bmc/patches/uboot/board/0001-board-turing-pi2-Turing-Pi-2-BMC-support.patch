@@ -1,0 +1,1178 @@
+From e5c3e3271301cdf849209ae024992ff6c41d96c5 Mon Sep 17 00:00:00 2001
+From: danste22 <daniel@steinhauf.eu>
+Date: Tue, 8 Sep 2026 10:27:16 +0200
+Subject: [PATCH] board: turing: pi2: Turing Pi 2 BMC support
+
+Add the TP2 board, EEPROM/bloblist handoff, FIT config from hw_version,
+and EEPROM-authoritative MAC (SID fallback only if EEPROM has none).
+Release the RTL8370MB from reset; Linux DSA owns isolation over GPIO SMI.
+On v2.5+ only, expand the OF_EMBED ubi partition to 255 MiB before UBI env
+attach. v2.3/v2.4 and missing EEPROM keep the 127 MiB map (128 MiB NAND).
+
+Signed-off-by: danste22 <daniel@steinhauf.eu>
+Co-authored-by: Cursor <cursoragent@cursor.com>
+---
+ board/sunxi/Makefile                |   1 +
+ board/sunxi/board.c                 |  36 +++-
+ board/turing/pi2/Makefile           |  11 ++
+ board/turing/pi2/board_info.h       |  33 ++++
+ board/turing/pi2/turingpi2-board.c  | 340 +++++++++++++++++++++++++++
+ board/turing/pi2/turingpi2-eeprom.c |  86 ++++++++++
+ board/turing/pi2/turingpi2-spl.c    | 258 ++++++++++++++++++++++++++++
+ cmd/Kconfig                         |   5 +
+ cmd/Makefile                        |   4 +
+ cmd/tpi_info.c                      | 215 +++++++++++++++++++++++
+ include/turingpi2.h                 |  11 ++
+ 11 files changed, 971 insertions(+), 2 deletions(-)
+ create mode 100644 board/turing/pi2/Makefile
+ create mode 100644 board/turing/pi2/board_info.h
+ create mode 100644 board/turing/pi2/turingpi2-board.c
+ create mode 100644 board/turing/pi2/turingpi2-eeprom.c
+ create mode 100644 board/turing/pi2/turingpi2-spl.c
+ create mode 100644 cmd/tpi_info.c
+ create mode 100644 include/turingpi2.h
+
+diff --git a/board/sunxi/Makefile b/board/sunxi/Makefile
+index ee82493117a..a7cb5392307 100644
+--- a/board/sunxi/Makefile
++++ b/board/sunxi/Makefile
+@@ -12,3 +12,4 @@ obj-$(CONFIG_MACH_SUN4I)	+= dram_sun4i_auto.o
+ obj-$(CONFIG_MACH_SUN5I)	+= dram_sun5i_auto.o
+ obj-$(CONFIG_MACH_SUN7I)	+= dram_sun5i_auto.o
+ obj-$(CONFIG_$(PHASE_)CHIP_DIP_SCAN)	+= chip.o
++obj-$(CONFIG_TARGET_TURINGPI2)	+= ../turing/pi2/
+diff --git a/board/sunxi/board.c b/board/sunxi/board.c
+index 3d1afec7c66..49e409006dc 100644
+--- a/board/sunxi/board.c
++++ b/board/sunxi/board.c
+@@ -51,4 +51,7 @@
+ #include <asm/setup.h>
++#ifdef CONFIG_TARGET_TURINGPI2
++#include <turingpi2.h>
++#endif
+ 
+ DECLARE_GLOBAL_DATA_PTR;
+ 
+@@ -108,6 +111,14 @@ void i2c_init_board(void)
+ #endif
+ #endif
+ 
++#if CONFIG_I2C2_ENABLE
++#if defined(CONFIG_MACH_SUN8I_R528)
++	sunxi_gpio_set_cfgpin(SUNXI_GPE(12), SUN8I_R528_GPE_TWI2);
++    sunxi_gpio_set_cfgpin(SUNXI_GPE(13), SUN8I_R528_GPE_TWI2);
++	clock_twi_onoff(2, 1);
++#endif
++#endif
++
+ #ifdef CONFIG_R_I2C_ENABLE
+ #ifdef CONFIG_MACH_SUN50I
+ 	clock_twi_onoff(5, 1);
+@@ -160,8 +168,8 @@ enum env_location env_get_location(enum env_operation op, int prio)
+ 			return ENVL_NAND;
+ 		break;
+ 	case BOOT_DEVICE_SPI:
+-		if (prio == 0 && IS_ENABLED(CONFIG_ENV_IS_IN_SPI_FLASH))
+-			return ENVL_SPI_FLASH;
++		if (prio == 0 && IS_ENABLED(CONFIG_ENV_IS_IN_UBI))
++			return ENVL_UBI;
+ 		if (IS_ENABLED(CONFIG_ENV_IS_IN_FAT))
+ 			return ENVL_FAT;
+ 		break;
+@@ -238,5 +246,9 @@ int board_init(void)
+ 	eth_init_board();
+ 
++#ifdef CONFIG_TARGET_TURINGPI2
++	turingpi2_ubi_apply_fdt();
++#endif
++
+ 	return 0;
+ }
+ 
+@@ -827,6 +839,10 @@ static void setup_environment(const void *fdt)
+ 	}
+ }
+ 
++#ifdef CONFIG_TARGET_TURINGPI2
++#include <turingpi2.h>
++#endif
++
+ int misc_init_r(void)
+ {
+ 	const char *spl_dt_name;
+@@ -861,6 +873,10 @@ int misc_init_r(void)
+ 		env_set("fdtfile", str);
+ 	}
+ 
++#ifdef CONFIG_TARGET_TURINGPI2
++	/* EEPROM MAC into ethaddr before SID fills an empty variable. */
++	turingpi2_mac_apply_late();
++#endif
+ 	setup_environment(gd->fdt_blob);
+ 
+ 	return 0;
+@@ -871,6 +887,10 @@ int board_late_init(void)
+ #ifdef CONFIG_USB_ETHER
+ 	usb_ether_init();
+ #endif
++#ifdef CONFIG_TARGET_TURINGPI2
++	turingpi2_ethsw_init();
++	turingpi2_set_fit_config_env();
++#endif
+ 
+ 	return 0;
+ }
+@@ -939,6 +959,9 @@ int ft_board_setup(void *blob, struct bd_info *bd)
+ 	 */
+ 	setup_environment(blob);
+ 	fdt_fixup_ethernet(blob);
++#ifdef CONFIG_TARGET_TURINGPI2
++	turingpi2_mac_apply_fdt(blob);
++#endif
+ 
+ 	bluetooth_dt_fixup(blob);
+ 	board_dt_fixup(blob);
+@@ -952,6 +975,7 @@ int ft_board_setup(void *blob, struct bd_info *bd)
+ }
+ 
+ #ifdef CONFIG_SPL_LOAD_FIT
++#ifndef CONFIG_TARGET_TURINGPI2
+ static void set_spl_dt_name(const char *name)
+ {
+ 	struct boot_file_head *spl = get_spl_header(SPL_ENV_HEADER_VERSION);
+@@ -1019,4 +1043,5 @@ int board_fit_config_name_match(const char *name)
+ 
+ 	return ret;
+ }
++#endif /* !CONFIG_TARGET_TURINGPI2 */
+ #endif /* CONFIG_SPL_LOAD_FIT */
+diff --git a/board/turing/pi2/Makefile b/board/turing/pi2/Makefile
+new file mode 100644
+index 00000000000..9dc5f37070a
+--- /dev/null
++++ b/board/turing/pi2/Makefile
+@@ -0,0 +1,11 @@
++
++# SPDX-License-Identifier: GPL-2.0+
++#
++# (C) Copyright 2024 sven@turingpi.com
++#
++obj-y += turingpi2-eeprom.o
++obj-y += turingpi2-spl.o
++ifneq ($(CONFIG_XPL_BUILD),y)
++obj-y += turingpi2-board.o
++endif
++ccflags-y += -Iboard/turing/pi2/
+diff --git a/board/turing/pi2/board_info.h b/board/turing/pi2/board_info.h
+new file mode 100644
+index 00000000000..a75aa954c68
+--- /dev/null
++++ b/board/turing/pi2/board_info.h
+@@ -0,0 +1,33 @@
++#ifndef BOARD_INFO_H
++#define BOARD_INFO_H
++
++#include <linux/types.h>
++#include <stdbool.h>
++
++#define TP_VER(maj, min, pat)\
++	((maj << 11) | ((min & 0x1F) << 6) | (pat & 0x3F))
++
++/* SPL copies the chosen DTB here for U-Boot proper (see board_fdt_blob_setup). */
++#define TPI2_SPL_FDT_ADDR 0x41800000UL
++
++#pragma pack(push, 1)
++typedef struct tpi_board_info {
++	uint16_t reserved;
++	uint32_t crc32;
++	uint16_t hdr_version;
++	uint16_t hw_version;
++	uint16_t factory_date;
++	char factory_serial[16];
++	char product_name[16];
++	char mac[6];
++} tpi_board_info;
++#pragma pack(pop)
++
++u32 compute_crc(const tpi_board_info *info);
++
++void unblock_twi2_bus(void);
++int turingpi2_eeprom_read(u8 *buf, int len);
++bool turingpi2_board_info_valid(tpi_board_info *info, int read_err);
++int turingpi2_board_info_read(tpi_board_info *info);
++
++#endif /* BOARD_INFO_H */
+diff --git a/board/turing/pi2/turingpi2-board.c b/board/turing/pi2/turingpi2-board.c
+new file mode 100644
+index 00000000000..9814f25b17f
+--- /dev/null
++++ b/board/turing/pi2/turingpi2-board.c
+@@ -0,0 +1,340 @@
++// SPDX-License-Identifier: GPL-2.0+
++/*
++ * Turing Pi 2 hooks for proper U-Boot (non-SPL).
++ *
++ * Copyright (C) 2024 Sven Rademakers <sven@turingpi.com>
++ */
++
++#include <asm/gpio.h>
++#include <asm-generic/gpio.h>
++#include <asm-generic/global_data.h>
++#include <bloblist.h>
++#include <board_info.h>
++#include <boot_fit.h>
++#include <dm.h>
++#include <env.h>
++#include <image.h>
++#include <init.h>
++#include <asm/sections.h>
++#include <linux/kernel.h>
++#include <linux/printk.h>
++#include <linux/delay.h>
++#include <linux/libfdt.h>
++#include <linux/string.h>
++#include <mapmem.h>
++#include <stdbool.h>
++#include <net.h>
++#include <sunxi_gpio.h>
++#include <turingpi2.h>
++
++DECLARE_GLOBAL_DATA_PTR;
++
++static const char *const turingpi2_emac_compat[] = {
++	"allwinner,sun20i-d1-emac",
++	"allwinner,sun50i-a64-emac",
++	"allwinner,sun50i-h6-emac",
++	"allwinner,sun8i-h3-emac",
++	"allwinner,sun8i-a83t-emac",
++	NULL,
++};
++
++#if CONFIG_IS_ENABLED(BLOBLIST)
++static tpi_board_info cached_info;
++static bool cached_info_ready;
++
++static const tpi_board_info *turingpi2_board_info_get(void)
++{
++	tpi_board_info *info;
++	int ret;
++
++	if (cached_info_ready)
++		return &cached_info;
++
++	ret = bloblist_maybe_init();
++	if (!ret) {
++		info = bloblist_find(BLOBLISTT_U_BOOT_SPL_HANDOFF, 0);
++		if (turingpi2_board_info_valid(info, info ? 0 : -ENOENT)) {
++			cached_info = *info;
++			cached_info_ready = true;
++			return &cached_info;
++		}
++	}
++
++	if (!turingpi2_board_info_read(&cached_info)) {
++		cached_info_ready = true;
++		return &cached_info;
++	}
++
++	return NULL;
++}
++
++static u16 turingpi2_hw_version(void)
++{
++	const tpi_board_info *info = turingpi2_board_info_get();
++
++	if (!info)
++		return TP_VER(2, 4, 0);
++
++	return info->hw_version;
++}
++
++static bool turingpi2_mac_from_bloblist(u8 *mac)
++{
++	const tpi_board_info *info = turingpi2_board_info_get();
++
++	if (!info)
++		return false;
++
++	memcpy(mac, info->mac, ARP_HLEN);
++	if (!is_valid_ethaddr(mac))
++		return false;
++
++	if (compute_crc(info) != info->crc32)
++		printf("BMC MAC: board info CRC mismatch\n");
++
++	return true;
++}
++#else
++static u16 turingpi2_hw_version(void)
++{
++	return TP_VER(2, 4, 0);
++}
++#endif
++
++static bool turingpi2_mac_read(u8 *mac)
++{
++#if CONFIG_IS_ENABLED(BLOBLIST)
++	return turingpi2_mac_from_bloblist(mac);
++#else
++	return false;
++#endif
++}
++
++static void turingpi2_ethsw_reset_release(u16 hw_version)
++{
++	const char *gpio_name = (hw_version < TP_VER(2, 5, 0)) ? "PG13" : "PG3";
++	struct gpio_desc reset_gpio;
++	int ret;
++
++	/* SPL asserts active-low reset; float the line to deassert. */
++	ret = dm_gpio_lookup_name(gpio_name, &reset_gpio);
++	if (ret)
++		goto fallback;
++
++	ret = dm_gpio_request(&reset_gpio, "ethsw-reset");
++	if (ret)
++		goto fallback;
++
++	dm_gpio_set_dir_flags(&reset_gpio, GPIOD_IS_IN);
++	dm_gpio_free(reset_gpio.dev, &reset_gpio);
++	mdelay(150);
++	return;
++
++fallback:
++	/* Pre-DM fallback for boards without gpio lookup names. */
++	gpio_direction_input((hw_version < TP_VER(2, 5, 0)) ?
++			     SUNXI_GPG(13) : SUNXI_GPG(3));
++	mdelay(150);
++}
++
++/*
++ * Release the RTL8370MB from reset. Isolation and VLAN policy belong to
++ * Linux DSA (GPIO SMI). U-Boot no longer speaks the retired I2C 0x5c
++ * personality; ASIC default forwarding after reset is enough for recovery
++ * DHCP. The two RJ45s may be bridged until Linux takes over.
++ */
++void turingpi2_ethsw_init(void)
++{
++	turingpi2_ethsw_reset_release(turingpi2_hw_version());
++}
++
++static void turingpi2_emac_set_fdt_mac(void *fdt, const u8 *mac)
++{
++	int node = -1, i;
++
++	if (!fdt)
++		return;
++
++	for (i = 0; turingpi2_emac_compat[i]; i++) {
++		node = fdt_node_offset_by_compatible(fdt, 0,
++						     turingpi2_emac_compat[i]);
++		if (node >= 0)
++			break;
++	}
++	if (node < 0)
++		return;
++
++	fdt_setprop(fdt, node, "local-mac-address", mac, ARP_HLEN);
++}
++
++int turingpi2_mac_apply_late(void)
++{
++	u8 mac[6];
++
++	if (!turingpi2_mac_read(mac)) {
++		printf("BMC MAC: factory address not found, SID fallback\n");
++		return 0;
++	}
++
++	printf("BMC MAC %pM (EEPROM)\n", mac);
++	if (!env_get("ethaddr"))
++		eth_env_set_enetaddr("ethaddr", mac);
++	if (gd->fdt_blob)
++		turingpi2_emac_set_fdt_mac((void *)gd->fdt_blob, mac);
++	return 0;
++}
++
++#define TPI2_UBI_OFF		0x00100000
++#define TPI2_UBI_SIZE_128M	0x07f00000	/* v2.3 / v2.4: 128 MiB NAND */
++#define TPI2_UBI_SIZE_256M	0x0ff00000	/* v2.5+: 256 MiB NAND */
++
++/*
++ * OF_EMBED is the v2.4 control DT (127 MiB ubi). That is the correct map
++ * for v2.3/v2.4 (MX35LF1GE4AB, 128 MiB). Only a *valid* EEPROM that says
++ * v2.5+ (MX35LF2GE4AD, 256 MiB) may expand the node. Missing, corrupt,
++ * or older EEPROM leaves the 127 MiB map untouched — never shrink, never
++ * guess. Run after DM I2C is up and before ENV_IS_IN_UBI probes MTD.
++ */
++static bool turingpi2_eeprom_has_256m_nand(u16 *hw_out)
++{
++	const tpi_board_info *info;
++	u16 hw;
++
++	if (hw_out)
++		*hw_out = TP_VER(2, 4, 0);
++
++#if !CONFIG_IS_ENABLED(BLOBLIST)
++	return false;
++#else
++	info = turingpi2_board_info_get();
++	if (!info)
++		return false;
++
++	hw = info->hw_version;
++	if (hw_out)
++		*hw_out = hw;
++
++	return hw >= TP_VER(2, 5, 0);
++#endif
++}
++
++static int turingpi2_fixup_ubi_partition(void *fdt)
++{
++	int offset = 0, depth = 0, len;
++	const char *label;
++	const fdt32_t *reg;
++	fdt32_t new_reg[2];
++	u32 have_size;
++	u16 hw;
++
++	if (!fdt)
++		return 0;
++
++	/* v2.3 / v2.4 / no EEPROM: keep the embedded 127 MiB partition. */
++	if (!turingpi2_eeprom_has_256m_nand(&hw))
++		return 0;
++
++	while ((offset = fdt_next_node(fdt, offset, &depth)) >= 0) {
++		label = fdt_getprop(fdt, offset, "label", NULL);
++		if (!label || strcmp(label, "ubi"))
++			continue;
++
++		reg = fdt_getprop(fdt, offset, "reg", &len);
++		if (!reg || len < (int)sizeof(new_reg))
++			return 0;
++
++		have_size = fdt32_to_cpu(reg[1]);
++		if (have_size == TPI2_UBI_SIZE_256M)
++			return 0;
++		if (have_size != TPI2_UBI_SIZE_128M)
++			return 0;
++
++		new_reg[0] = cpu_to_fdt32(TPI2_UBI_OFF);
++		new_reg[1] = cpu_to_fdt32(TPI2_UBI_SIZE_256M);
++		if (fdt_setprop(fdt, offset, "reg", new_reg, sizeof(new_reg)))
++			return 0;
++
++		printf("UBI partition 255 MiB (EEPROM v%d.%d.%d)\n",
++		       hw >> 11, (hw >> 6) & 0x1F, hw & 0x3F);
++		return 0;
++	}
++
++	return 0;
++}
++
++void turingpi2_ubi_apply_fdt(void)
++{
++	if (gd->fdt_blob)
++		turingpi2_fixup_ubi_partition((void *)gd->fdt_blob);
++}
++
++int board_fix_fdt(void *rw_fdt_blob)
++{
++	turingpi2_fixup_ubi_partition(rw_fdt_blob);
++	return turingpi2_mac_apply_fdt(rw_fdt_blob);
++}
++
++int turingpi2_mac_apply_fdt(void *fdt)
++{
++	u8 mac[6];
++
++	if (!fdt || !turingpi2_mac_read(mac))
++		return 0;
++
++	turingpi2_emac_set_fdt_mac(fdt, mac);
++	return 0;
++}
++
++void turingpi2_set_fit_config_env(void)
++{
++	u16 hw = turingpi2_hw_version();
++	const char *fit_config;
++	char ver[12];
++
++	if (hw >= TP_VER(2, 5, 2))
++		fit_config = "config-v2.5.2";
++	else if (hw >= TP_VER(2, 5, 1))
++		fit_config = "config-v2.5.1";
++	else if (hw >= TP_VER(2, 5, 0))
++		fit_config = "config-v2.5.0";
++	else
++		fit_config = "config-v2.4.0";
++
++	snprintf(ver, sizeof(ver), "v%d.%d.%d", hw >> 11,
++		 (hw >> 6) & 0x1F, hw & 0x3F);
++	env_set("tpi_fit_config", fit_config);
++	printf("FIT config %s (EEPROM %s)\n", fit_config, ver);
++}
++
++#if CONFIG_IS_ENABLED(OF_SEPARATE) && CONFIG_IS_ENABLED(OF_BOARD) && \
++	CONFIG_IS_ENABLED(MULTI_DTB_FIT)
++int board_fdt_blob_setup(void **fdtp)
++{
++	void *stash = map_sysmem(TPI2_SPL_FDT_ADDR, 0);
++	void *fit, *dtb;
++
++	if (!fdt_check_header(stash)) {
++		*fdtp = stash;
++		return 0;
++	}
++
++	if (!fit_check_format(stash, IMAGE_SIZE_INVAL)) {
++		dtb = locate_dtb_in_fit(stash);
++		if (dtb) {
++			*fdtp = dtb;
++			return 0;
++		}
++	}
++
++	fit = (void *)_end;
++	if (!fit_check_format(fit, IMAGE_SIZE_INVAL)) {
++		dtb = locate_dtb_in_fit(fit);
++		if (dtb) {
++			*fdtp = dtb;
++			return 0;
++		}
++	}
++
++	return -EEXIST;
++}
++#endif
+diff --git a/board/turing/pi2/turingpi2-eeprom.c b/board/turing/pi2/turingpi2-eeprom.c
+new file mode 100644
+index 00000000000..0e70813c03d
+--- /dev/null
++++ b/board/turing/pi2/turingpi2-eeprom.c
+@@ -0,0 +1,86 @@
++// SPDX-License-Identifier: GPL-2.0+
++/*
++ * Turing Pi 2 board EEPROM access (SPL direct TWI2 and proper-U-Boot DM).
++ *
++ * Copyright (C) 2024 Sven Rademakers <sven@turingpi.com>
++ */
++
++#include <board_info.h>
++#include <dm.h>
++#include <errno.h>
++#include <i2c.h>
++#include <linux/delay.h>
++
++#define TPI_EEPROM_ADDR	0x50
++#define TPI_EEPROM_RETRIES	3
++
++#if defined(CONFIG_XPL_BUILD) && defined(CONFIG_ARCH_SUNXI)
++int sunxi_mvtwsi_early_read(u8 chip, unsigned int addr, int alen,
++			    u8 *buffer, int len);
++#endif
++
++static int turingpi2_eeprom_read_once(u8 *buf, int len)
++{
++#if defined(CONFIG_XPL_BUILD) && defined(CONFIG_ARCH_SUNXI)
++	return sunxi_mvtwsi_early_read(TPI_EEPROM_ADDR, 0, 1, buf, len);
++#elif CONFIG_IS_ENABLED(DM_I2C)
++	struct udevice *dev;
++	int ret;
++
++	ret = i2c_get_chip_for_busnum(0, TPI_EEPROM_ADDR, 1, &dev);
++	if (ret)
++		return ret;
++
++	return dm_i2c_read(dev, 0, buf, len);
++#else
++	return -ENOSYS;
++#endif
++}
++
++int turingpi2_eeprom_read(u8 *buf, int len)
++{
++	int ret = -EIO;
++	int attempt;
++
++	if (!buf || len <= 0)
++		return -EINVAL;
++
++	for (attempt = 0; attempt < TPI_EEPROM_RETRIES; attempt++) {
++		if (attempt)
++			mdelay(5);
++
++		unblock_twi2_bus();
++		udelay(500);
++
++		ret = turingpi2_eeprom_read_once(buf, len);
++		if (!ret)
++			return 0;
++	}
++
++	return ret;
++}
++
++bool turingpi2_board_info_valid(tpi_board_info *info, int read_err)
++{
++	if (read_err || !info)
++		return false;
++
++	return compute_crc(info) == info->crc32;
++}
++
++int turingpi2_board_info_read(tpi_board_info *info)
++{
++	int ret;
++
++	if (!info)
++		return -EINVAL;
++
++	ret = turingpi2_eeprom_read((u8 *)info, sizeof(*info));
++	if (ret)
++		return ret;
++
++	if (!turingpi2_board_info_valid(info, 0))
++		return -EINVAL;
++
++	return 0;
++}
+diff --git a/board/turing/pi2/turingpi2-spl.c b/board/turing/pi2/turingpi2-spl.c
+new file mode 100644
+index 00000000000..8270ed86ce0
+--- /dev/null
++++ b/board/turing/pi2/turingpi2-spl.c
+@@ -0,0 +1,258 @@
++// SPDX-License-Identifier: GPL-2.0+
++/*
++ * Copyright (C) 2023 Sam Edwards <CFSworks@gmail.com>
++ * Copyright (C) 2024 Sven Rademakers <sven@turingpi.com>
++ *
++ * Early init for the Turing Pi 2 clusterboard.
++ */
++
++#include <asm/gpio.h>
++#include <asm/io.h>
++#include <bloblist.h>
++#include <board_info.h>
++#include <boot_fit.h>
++#include <image.h>
++#include <init.h>
++#include <linux/delay.h>
++#include <linux/libfdt.h>
++#include <linux/string.h>
++#include <mapmem.h>
++#include <spl.h>
++#include <sunxi_gpio.h>
++#include <u-boot/crc.h>
++
++u32 compute_crc(const tpi_board_info *info)
++{
++	int info_offset = offsetof(tpi_board_info, hdr_version);
++	u32 crc = crc32(0, (void *)info + info_offset,
++			sizeof(tpi_board_info) - info_offset);
++
++	return ((crc & 0x000000FF) << 24) | ((crc & 0x0000FF00) << 8) |
++	       ((crc & 0x00FF0000) >> 8) | ((crc & 0xFF000000) >> 24);
++}
++
++#ifdef CONFIG_XPL_BUILD
++
++#define TURING_PI2_LATCH_STATE_ADDR 0x0709010c
++#define TURING_PI2_BOOT_COOKIE_ADDR 0x07090108
++#define TURING_PI2_BOOT_COOKIE_WARM 0x32695054 /* "TPi2" ASCII */
++#define TURING_PI2_BOOT_COOKIE_FEL 0x5aa5a55a
++
++static void turingpi2_ethsw_rst(u16 tpi_version)
++{
++	if (tpi_version < TP_VER(2, 5, 0))
++		gpio_direction_output(SUNXI_GPG(13), 0);
++	else
++		gpio_direction_output(SUNXI_GPG(3), 0);
++}
++
++static void init_latches(u16 tpi_version)
++{
++	if (tpi_version >= TP_VER(2, 5, 0)) {
++		gpio_direction_output(SUNXI_GPD(7), 0);
++		gpio_direction_output(SUNXI_GPD(6), 0);
++		gpio_direction_output(SUNXI_GPD(5), 0);
++		gpio_direction_output(SUNXI_GPD(3), 0);
++		gpio_direction_output(SUNXI_GPD(4), 0);
++		gpio_direction_output(SUNXI_GPD(8), 0);
++		gpio_direction_output(SUNXI_GPD(9), 0);
++		gpio_direction_output(SUNXI_GPD(10), 0);
++		gpio_direction_output(SUNXI_GPD(11), 0);
++		gpio_direction_output(SUNXI_GPD(20), 1);
++		udelay(50);
++
++		writel(readl(TURING_PI2_LATCH_STATE_ADDR) & 0xFFFFFE00,
++		       TURING_PI2_LATCH_STATE_ADDR);
++	}
++}
++
++static int board_info_from_eeprom(tpi_board_info *info)
++{
++	return turingpi2_board_info_read(info);
++}
++
++#if CONFIG_IS_ENABLED(BLOBLIST)
++static tpi_board_info *setup_bloblist(void)
++{
++	int init_res = bloblist_init();
++	void *board_tag;
++
++	if (init_res) {
++		printf("bloblist init err 0x%x\n", init_res);
++		return NULL;
++	}
++
++	board_tag = bloblist_add(BLOBLISTT_U_BOOT_SPL_HANDOFF,
++				 sizeof(tpi_board_info), 0);
++	if (!board_tag)
++		printf("no space for board_info in bloblist\n");
++
++	return board_tag;
++}
++#endif
++
++int tp_board_init(void)
++{
++	u32 cookie = readl(TURING_PI2_BOOT_COOKIE_ADDR);
++	tpi_board_info *info = NULL;
++	u16 version = TP_VER(2, 4, 0);
++	int result = -ENOENT;
++
++	if (cookie == TURING_PI2_BOOT_COOKIE_FEL) {
++		writel(TURING_PI2_BOOT_COOKIE_WARM, TURING_PI2_BOOT_COOKIE_ADDR);
++		return 1;
++	}
++
++#if CONFIG_IS_ENABLED(BLOBLIST)
++	info = setup_bloblist();
++	if (!info)
++		return 0;
++#else
++	tpi_board_info stack;
++
++	info = &stack;
++#endif
++
++	if (info)
++		result = board_info_from_eeprom(info);
++
++	if (result)
++		printf("Error: reading EEPROM %d\n", result);
++
++	if (result || compute_crc(info) != info->crc32) {
++		printf("Error(%x): invalid board info, defaulting to version 0x%x. crc=%x expected=%x ver=%x\n",
++		       result, version, info->crc32, compute_crc(info),
++		       info->hw_version);
++		info->hw_version = version;
++	} else {
++		version = info->hw_version;
++	}
++
++	if (cookie != TURING_PI2_BOOT_COOKIE_WARM) {
++		turingpi2_ethsw_rst(version);
++		init_latches(version);
++		writel(TURING_PI2_BOOT_COOKIE_WARM, TURING_PI2_BOOT_COOKIE_ADDR);
++	}
++
++#if CONFIG_IS_ENABLED(BLOBLIST)
++	bloblist_finish();
++#endif
++	return 0;
++}
++
++#ifdef CONFIG_TARGET_TURINGPI2
++#if CONFIG_IS_ENABLED(OF_SEPARATE) && CONFIG_IS_ENABLED(BLOBLIST) && \
++	CONFIG_IS_ENABLED(MULTI_DTB_FIT)
++static bool turingpi2_fdt_valid(const void *blob)
++{
++	int totalsize;
++
++	if (!blob || fdt_magic(blob) != FDT_MAGIC)
++		return false;
++
++	totalsize = fdt_totalsize(blob);
++	return totalsize >= (int)sizeof(struct fdt_header) &&
++	       totalsize <= (1024 * 1024);
++}
++
++static int turingpi2_stash_fdt(const void *blob)
++{
++	int size = fdt_totalsize(blob);
++	void *stash;
++	int ret;
++
++	if (!turingpi2_fdt_valid(blob))
++		return -EINVAL;
++
++	memcpy(map_sysmem(TPI2_SPL_FDT_ADDR, size), blob, size);
++
++	ret = bloblist_maybe_init();
++	if (ret)
++		return ret;
++
++	if (bloblist_find(BLOBLISTT_CONTROL_FDT, 0))
++		return 0;
++
++	stash = bloblist_add(BLOBLISTT_CONTROL_FDT, size, 0);
++	if (!stash)
++		return -ENOSPC;
++
++	memcpy(stash, blob, size);
++	return 0;
++}
++
++static void *turingpi2_find_multidtb_fit(ulong base, ulong size)
++{
++	u8 *start, *p;
++	ulong scan_len = size;
++
++	if (size < sizeof(struct fdt_header))
++		return NULL;
++
++	start = map_sysmem(base, scan_len);
++	for (p = start + scan_len - 4; p >= start; p -= 4) {
++		ulong remain = scan_len - (p - start);
++
++		if (fdt_magic(p) != FDT_MAGIC)
++			continue;
++		if (fdt_totalsize(p) > remain ||
++		    fdt_totalsize(p) < sizeof(struct fdt_header))
++			continue;
++		if (fit_check_format(p, IMAGE_SIZE_INVAL))
++			continue;
++		if (fdt_path_offset(p, "/images") < 0)
++			continue;
++		return p;
++	}
++
++	return NULL;
++}
++
++void spl_perform_board_fixups(struct spl_image_info *spl_image)
++{
++	void *fit, *dtb;
++
++	if (!spl_image)
++		return;
++
++	dtb = spl_image_fdt_addr(spl_image);
++	if (turingpi2_fdt_valid(dtb)) {
++		turingpi2_stash_fdt(dtb);
++		return;
++	}
++
++	fit = turingpi2_find_multidtb_fit(spl_image->load_addr, spl_image->size);
++	if (!fit)
++		return;
++
++	dtb = locate_dtb_in_fit(fit);
++	if (turingpi2_fdt_valid(dtb))
++		turingpi2_stash_fdt(dtb);
++}
++#endif /* OF_SEPARATE && BLOBLIST && MULTI_DTB_FIT */
++#endif /* CONFIG_TARGET_TURINGPI2 */
++
++#endif /* CONFIG_XPL_BUILD */
++
++#if defined(CONFIG_TARGET_TURINGPI2) && CONFIG_IS_ENABLED(OF_CONTROL)
++int board_fit_config_name_match(const char *name)
++{
++#if CONFIG_IS_ENABLED(BLOBLIST)
++	tpi_board_info *info;
++	int init_res = bloblist_maybe_init();
++
++	if (init_res)
++		return -ENODATA;
++
++	info = bloblist_find(BLOBLISTT_U_BOOT_SPL_HANDOFF, 0);
++	if (!info)
++		return -ENODATA;
++
++	if (info->hw_version == TP_VER(2, 4, 0) && strstr(name, "-v2.4"))
++		return 0;
++	if (info->hw_version >= TP_VER(2, 5, 0) && strstr(name, "-v2.5"))
++		return 0;
++#endif
++	return -EINVAL;
++}
++#endif
+diff --git a/cmd/Kconfig b/cmd/Kconfig
+index c71c6824a19..ea9d32dd05f 100644
+--- a/cmd/Kconfig
++++ b/cmd/Kconfig
+@@ -1402,6 +1402,11 @@ config CMD_I3C
+ 	  Enable command to list i3c devices connected to the i3c controller
+ 	  and perform read and write on the connected i3c devices.
+ 
++config CMD_TPI_INFO
++	bool "tpi_info"
++	help
++	  helper tool to load spl handoff
++
+ config CMD_W1
+ 	depends on W1 && W1_EEPROM
+ 	default y if W1
+diff --git a/cmd/Makefile b/cmd/Makefile
+index bbbdfcc4ded..f195ce08d82 100644
+--- a/cmd/Makefile
++++ b/cmd/Makefile
+@@ -12,6 +12,10 @@ obj-y += panic.o
+ obj-y += version.o
+ 
+ # command
++obj-$(CONFIG_CMD_TPI_INFO) += tpi_info.o
++ifdef CONFIG_CMD_TPI_INFO
++	ccflags-y += -Iboard/turing/pi2/
++endif
+ obj-$(CONFIG_CMD_ARMFFA) += armffa.o
+ obj-$(CONFIG_CMD_2048) += 2048.o
+ obj-$(CONFIG_CMD_ACPI) += acpi.o
+diff --git a/cmd/tpi_info.c b/cmd/tpi_info.c
+new file mode 100644
+index 00000000000..8f19cc12370
+--- /dev/null
++++ b/cmd/tpi_info.c
+@@ -0,0 +1,215 @@
++// SPDX-License-Identifier: GPL-2.0+
++/*
++ * Copyright (C) 2024 Sven Rademakers <sven@turingpi.com>
++ *
++ */
++
++#include <bloblist.h>
++#include <board_info.h>
++#include <command.h>
++#include <env.h>
++#include <linux/printk.h>
++#include <linux/stddef.h>
++#include <linux/string.h>
++#include <stdio.h>
++#include <vsprintf.h>
++
++// Returns the semver version pointed to by `version_ptr` as a char*, prefixed
++// with 'v'. e.g. v2.5.1
++//
++// The version field is encoded inside an uint16_t.
++// they are grouped as followed:
++// 5 bits for the major version
++// 5 bits for the minor version
++// 6 bits for the patch version
++//
++// therefore the maximum supported version is 32.32.64
++//
++// The passed buffer should be at least 10 bytes long:
++// 'vXX.XX.XX/0' = 10
++void parse_version_field(char *buffer, uint16_t version) {
++  sprintf(buffer, "v%d.%d.%d", version >> 11, (version >> 6) & 0x1F,
++          version & 0x3F);
++}
++
++void try_split_identifier(char *buffer, int pos) {
++  char *found = buffer;
++  for (int i = 0; i < pos; ++i) {
++    ++found;
++    found = strchr(found, '.');
++    if (!found) {
++      return;
++    }
++  }
++
++  if (found && found != buffer) {
++    *found = '\0';
++  }
++}
++
++#define ENV_NAME(member) "tpi_" #member
++#define SAVE_U16_OR_RETURN(member, env_name)                                   \
++  if (sprintfu16(info, env_name, offsetof(tpi_board_info, member))) {          \
++    return CMD_RET_FAILURE;                                                    \
++  }
++#define SAVE_U32_OR_RETURN(member, env_name)                                   \
++  if (sprintfu32(info, env_name, offsetof(tpi_board_info, member))) {          \
++    return CMD_RET_FAILURE;                                                    \
++  }
++#define SAVE_STR_OR_RETURN(member, env_name)                                   \
++  if (sprintfstr(info, env_name, offsetof(tpi_board_info, member))) {          \
++    return CMD_RET_FAILURE;                                                    \
++  }
++#define SAVE_MAC_OR_RETURN(env_name)                                           \
++  if (sprintfmac(info, env_name)) {                                            \
++    return CMD_RET_FAILURE;                                                    \
++  }
++
++int save_to_env(const char *env_name, const char *buffer) {
++  if (env_set(env_name, buffer)) {
++    printf("Failed to set environment variable '%s'\n", env_name);
++    return CMD_RET_FAILURE;
++  }
++
++  return CMD_RET_SUCCESS;
++}
++
++int sprintfu32(tpi_board_info *info, const char *env_name, size_t offsetoff) {
++  char buffer[9] = {0};
++  sprintf(buffer, "%08x", *(uint32_t *)((void *)info + offsetoff));
++  return save_to_env(env_name, buffer);
++}
++
++int sprintfu16(tpi_board_info *info, const char *env_name, size_t offsetoff) {
++  char buffer[5] = {0};
++  sprintf(buffer, "%04x", *(uint16_t *)((void *)info + offsetoff));
++  return save_to_env(env_name, buffer);
++}
++
++int sprintfstr(tpi_board_info *info, const char *env_name, size_t offsetoff) {
++  char buffer[32] = {0};
++  snprintf(buffer, sizeof(buffer), "%s", ((char *)info) + offsetoff);
++  return save_to_env(env_name, buffer);
++}
++
++int sprintfmac(tpi_board_info *info, const char *env_name) {
++  char buffer[13] = {0};
++  sprintf(buffer, "%02X%02X%02X%02X%02X%02X", info->mac[0], info->mac[1],
++          info->mac[2], info->mac[3], info->mac[4], info->mac[5]);
++  return save_to_env(env_name, buffer);
++}
++
++int handle_version(tpi_board_info *info, char *env_name, const char option) {
++  char buffer[10] = {0};
++  parse_version_field(buffer, info->hw_version);
++  try_split_identifier(buffer, option - '0');
++
++  if (env_set(env_name, buffer) != 0) {
++    printf("Failed to set environment variable '%s'\n", env_name);
++    return CMD_RET_FAILURE;
++  }
++
++  return CMD_RET_SUCCESS;
++}
++
++int handle_all(tpi_board_info *info) {
++  if (handle_version(info, ENV_NAME(hw_version), '3')) {
++    return CMD_RET_FAILURE;
++  }
++
++  SAVE_U16_OR_RETURN(hdr_version, ENV_NAME(hdr_version));
++  SAVE_U32_OR_RETURN(crc32, ENV_NAME(crc32));
++  SAVE_U16_OR_RETURN(factory_date, ENV_NAME(factory_date));
++  SAVE_STR_OR_RETURN(factory_serial, ENV_NAME(factory_serial));
++  SAVE_STR_OR_RETURN(product_name, ENV_NAME(product_name));
++  SAVE_MAC_OR_RETURN(ENV_NAME(mac));
++  return CMD_RET_SUCCESS;
++}
++
++// This function reads back the turing-pi board info that is set by a customized
++// SPL. it expects a `BLOBLISTT_U_BOOT_SPL_HANDOFF` tag to be present inside the
++// bloblist that contains a correct encoded tpi_board_info struct.
++int do_tpi_info(struct cmd_tbl *cmdtp, int flag, int argc, char *const argv[]) {
++  char *name = "all";
++  if (argc >= 2) {
++    name = argv[1];
++  }
++
++  char *env_name = NULL;
++  if (argc >= 3) {
++    env_name = argv[2];
++    if (env_name[0] == '\0') {
++      printf("provided an empty var name\n");
++      return CMD_RET_FAILURE;
++    }
++  }
++
++  int init_res = bloblist_maybe_init();
++  if (init_res != 0) {
++    printf("Error initializing bloblist: %d\n", init_res);
++    return CMD_RET_FAILURE;
++  }
++
++  // Get the blob data
++  tpi_board_info *info =
++      (tpi_board_info *)bloblist_find(BLOBLISTT_U_BOOT_SPL_HANDOFF, 0);
++
++  if (!info) {
++    puts("Error: spl handoff blob not found\n");
++    return CMD_RET_FAILURE;
++  }
++
++  if (compute_crc(info) != info->crc32) {
++    printf("Error: tpi_board_info: invalid CRC\n");
++  } else {
++    env_set(ENV_NAME(crc_ok), "y");
++  }
++
++  if (!strcmp("all", name)) {
++    return handle_all(info);
++  } else if (!strcmp("hw_version", name)) {
++    char option = '3';
++    if (argc >= 4) {
++      option = *argv[3];
++    }
++    return handle_version(info, env_name, option);
++  } else if (!strcmp("reserved", name)) {
++    SAVE_U16_OR_RETURN(reserved, env_name);
++  } else if (!strcmp("hdr_version", name)) {
++    SAVE_U16_OR_RETURN(hdr_version, env_name);
++  } else if (!strcmp("crc32", name)) {
++    SAVE_U32_OR_RETURN(crc32, env_name);
++  } else if (!strcmp("factory_date", name)) {
++    SAVE_U16_OR_RETURN(factory_date, env_name);
++  } else if (!strcmp("mac", name)) {
++    SAVE_MAC_OR_RETURN(env_name);
++  } else if (!strcmp("factory_serial", name)) {
++    SAVE_STR_OR_RETURN(factory_serial, env_name);
++  } else if (!strcmp("product_name", name)) {
++    SAVE_STR_OR_RETURN(product_name, env_name);
++  } else {
++    printf("Error: %s is not an member\n", name);
++    return CMD_RET_FAILURE;
++  }
++  return CMD_RET_SUCCESS;
++}
++
++U_BOOT_CMD(
++    tpi_info, 4, 0, do_tpi_info, "retrieves the turing-pi board-info from SPL",
++    "Usage:\n"
++    "    `tpi_info <member> <env_name> <optional args>`\n\n"
++    "    <member>:\n"
++    "     - hdr_version\n"
++    "     - crc32\n"
++    "     - hw_version\n"
++    "     - factory_date // days since May 1st 2024\n"
++    "     - product_name\n"
++    "     - mac\n"
++    "     - factory_serial\n\n"
++    "    <env_name>: name of env to store the version in\n"
++    "Specialized commands:\n\n"
++    "    `tpi_info`\n"
++    "        // loads all available data in environment using 'tpi_' prefix\n"
++    "    `tpi_info version <env_name> <identifier len>`\n"
++    "        <identifier len>: 3= full, 2=major+minor, "
++    "1=major\n");
+diff --git a/include/turingpi2.h b/include/turingpi2.h
+new file mode 100644
+index 00000000000..3deccc94215
+--- /dev/null
++++ b/include/turingpi2.h
+@@ -0,0 +1,11 @@
++/* SPDX-License-Identifier: GPL-2.0+ */
++#ifndef _TURINGPI2_H
++#define _TURINGPI2_H
++
++void turingpi2_ethsw_init(void);
++int turingpi2_mac_apply_late(void);
++int turingpi2_mac_apply_fdt(void *fdt);
++void turingpi2_ubi_apply_fdt(void);
++void turingpi2_set_fit_config_env(void);
++
++#endif
+-- 
+2.50.1 (Apple Git-155)
+

@@ -1,9 +1,17 @@
 # shellcheck shell=bash
-# Resolve Buildroot's U-Boot source directory for the pinned commit.
-# Buildroot names it output/build/uboot-<BR2_TARGET_UBOOT_CUSTOM_REPO_VERSION>.
+# Resolve Buildroot's U-Boot source directory.
+# Upstream custom version: output/build/uboot-<BR2_TARGET_UBOOT_CUSTOM_VERSION_VALUE>
+# Legacy git pin: output/build/uboot-<BR2_TARGET_UBOOT_CUSTOM_REPO_VERSION>
 
 tp2bmc_uboot_pin() {
 	local br_defconfig="${1:?}"
+	local ver
+
+	ver=$(grep '^BR2_TARGET_UBOOT_CUSTOM_VERSION_VALUE=' "$br_defconfig" | cut -d= -f2 | tr -d '"')
+	if [[ -n "$ver" ]]; then
+		echo "$ver"
+		return 0
+	fi
 	grep '^BR2_TARGET_UBOOT_CUSTOM_REPO_VERSION=' "$br_defconfig" | cut -d= -f2 | tr -d '"'
 }
 

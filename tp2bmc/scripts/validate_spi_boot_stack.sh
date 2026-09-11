@@ -2,7 +2,7 @@
 # Compare BMC boot settings + built image to the known-good reference (not the product pin):
 #   https://github.com/danste22/Turing-pi-u-boot/commits/feat/buildroot2025.11
 #   ref 7164231fd43a — OF_EMBED, legacy mkimage @ 0x8000, spl_spi 3x NAND→NOR.
-# Product U-Boot version is BR2_TARGET_UBOOT_CUSTOM_REPO_VERSION in tp2bmc_defconfig.
+# Product U-Boot version is BR2_TARGET_UBOOT_CUSTOM_VERSION_VALUE in tp2bmc_defconfig.
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "$0")/../.." && pwd)"
@@ -37,23 +37,29 @@ grep -q '^CONFIG_MULTI_DTB_FIT=y' "$DEFCONFIG" || bad 'CONFIG_MULTI_DTB_FIT miss
 grep -q '^CONFIG_TARGET_TURINGPI2=y' "$DEFCONFIG" || bad 'CONFIG_TARGET_TURINGPI2 missing'
 grep -q '^CONFIG_LTO=y' "$DEFCONFIG" || bad 'CONFIG_LTO missing'
 grep -q '^CONFIG_UBI_DEFAULT_VID_OFFSET=2048' "$DEFCONFIG" || bad 'CONFIG_UBI_DEFAULT_VID_OFFSET=2048 missing'
+grep -q '^# CONFIG_TOOLS_MKEFICAPSULE is not set' "$DEFCONFIG" || \
+	bad 'CONFIG_TOOLS_MKEFICAPSULE must be disabled (host GnuTLS has no PKCS#11)'
+grep -q '^# CONFIG_EFI_LOADER is not set' "$DEFCONFIG" || \
+	bad 'CONFIG_EFI_LOADER must be disabled (pulls in mkeficapsule)'
 grep -q '^BR2_TARGET_UBOOT_DEFAULT_ENV_FILE=' "$BR_DEFCONFIG" 2>/dev/null || \
 	bad 'BR2_TARGET_UBOOT_DEFAULT_ENV_FILE missing in tp2bmc_defconfig'
 [[ $fail -eq 0 ]] && ok 'uboot_defconfig boot keys'
 
 echo ""
-echo "=== 2) Product U-Boot pin (Buildroot) ==="
+echo "=== 2) Product U-Boot version (Buildroot) ==="
 pin=""
 if [[ ! -f "$BR_DEFCONFIG" ]]; then
 	bad "missing $BR_DEFCONFIG"
 else
-	pin=$(grep '^BR2_TARGET_UBOOT_CUSTOM_REPO_VERSION=' "$BR_DEFCONFIG" | cut -d= -f2 | tr -d '"')
-	ok "product pin ${pin:0:12} (reference is ${REF_COMMIT:0:12}, not required to match)"
+	pin=$(grep '^BR2_TARGET_UBOOT_CUSTOM_VERSION_VALUE=' "$BR_DEFCONFIG" | cut -d= -f2 | tr -d '"')
+	[[ -n "$pin" ]] || pin=$(grep '^BR2_TARGET_UBOOT_CUSTOM_REPO_VERSION=' "$BR_DEFCONFIG" | cut -d= -f2 | tr -d '"')
+	ok "product U-Boot ${pin} (reference is ${REF_COMMIT:0:12}, not required to match)"
 fi
-if compgen -G "${PATCH_DIR}"/*.patch >/dev/null 2>&1; then
-	bad "stale patches in ${PATCH_DIR}/ — U-Boot changes belong in Turing-pi-u-boot repo"
+patch_count=$(find "$PATCH_DIR" -name '*.patch' 2>/dev/null | wc -l | tr -d ' ')
+if [[ "${patch_count}" -eq 0 ]]; then
+	bad "no U-Boot patches under ${PATCH_DIR}/ — expected sunxi/usb/ubi/i2c/spl/board series"
 else
-	ok "no U-Boot patches in BMC-Firmware (use Turing-pi-u-boot repo)"
+	ok "${patch_count} U-Boot patch(es) in ${PATCH_DIR}/"
 fi
 
 echo ""

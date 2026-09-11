@@ -178,6 +178,19 @@ the scripts directory.
 | init.sh      | This is the devcontainer initialization script, only used by the devcontainer on startup                                        |
 | sync.sh      | Only for macOS / darwin, synchronize changes to the host                                                                        |
 
+U-Boot SPI layout (legacy mkimage @ `0x8000`, `OF_EMBED`, patches present) is
+checked by [`tp2bmc/scripts/validate_spi_boot_stack.sh`](tp2bmc/scripts/validate_spi_boot_stack.sh).
+`post_image.sh` runs it at the end of a firmware build. In the DevContainer,
+after a build:
+
+```shell
+BUILD_DIR=/work/buildroot/output/build \
+BINARIES_DIR=/work/buildroot/output/images \
+./tp2bmc/scripts/validate_spi_boot_stack.sh
+```
+
+Do not set `UBOOT_DIR` to `../turing-bmc-bootloader` inside the container.
+
 > **NOTE**
 >
 > If an additional script is added then some extra steps are required. The provided gitconfig turns off `filemode` this is due to the fact that development
@@ -870,8 +883,8 @@ firmware-complete on this line).
 | Component                              | Where the version is pinned                                                                                                                                            |
 | -------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | **Buildroot**                          | **`2026.02.1`** in [`scripts/configure.sh`](scripts/configure.sh) (`BUILDROOT_VER`)                                                                                    |
-| **Linux kernel**                       | **`6.18.27`** in [`tp2bmc/configs/tp2bmc_defconfig`](tp2bmc/configs/tp2bmc_defconfig) (`BR2_LINUX_KERNEL_CUSTOM_VERSION_VALUE`)                                        |
-| **U-Boot**                             | Git commit `540468d5d61505b1f21e1fb753c55b81ea634b00` in [`tp2bmc/configs/tp2bmc_defconfig`](tp2bmc/configs/tp2bmc_defconfig) (`BR2_TARGET_UBOOT_CUSTOM_REPO_VERSION`) |
+| **Linux kernel**                       | **`6.18.48`** in [`tp2bmc/configs/tp2bmc_defconfig`](tp2bmc/configs/tp2bmc_defconfig) (`BR2_LINUX_KERNEL_CUSTOM_VERSION_VALUE`)                                        |
+| **U-Boot**                             | **2026.07** in [`tp2bmc/configs/tp2bmc_defconfig`](tp2bmc/configs/tp2bmc_defconfig) (`BR2_TARGET_UBOOT_CUSTOM_VERSION_VALUE`) plus [`tp2bmc/patches/uboot/`](tp2bmc/patches/uboot/) |
 | **bmcd**                               | `v2.3.4` in [`tp2bmc/package/bmcd/bmcd.mk`](tp2bmc/package/bmcd/bmcd.mk) (`BMCD_VERSION`)                                                                              |
 | **BMC-UI** (static Web UI)             | `v3.3.6` in [`tp2bmc/package/bmc-ui/bmc-ui.mk`](tp2bmc/package/bmc-ui/bmc-ui.mk) (`BMC_UI_VERSION`)                                                                    |
 | **BMC-Installer** (recovery / SD init) | Git `eef33d0f72728831650ab4d04b5225993f002b31` in [`tp2bmc/package/bmc_installer/bmc_installer.mk`](tp2bmc/package/bmc_installer/bmc_installer.mk)                     |
