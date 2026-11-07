@@ -1,0 +1,46 @@
+#!/bin/sh
+# Start a USB-gadget serial getty only while /dev/ttyGS0 exists.
+# Avoids BusyBox init "GS0 respawning too fast" when no USB host is attached.
+
+PIDFILE=/var/run/getty-ttyGS0.pid
+WRAPPER_PIDFILE=/var/run/getty-ttyGS0-wrapper.pid
+
+stop_getty() {
+	if [ -f "$WRAPPER_PIDFILE" ]; then
+		kill "$(cat "$WRAPPER_PIDFILE")" 2>/dev/null
+		rm -f "$WRAPPER_PIDFILE"
+	fi
+	if [ -f "$PIDFILE" ]; then
+		kill "$(cat "$PIDFILE")" 2>/dev/null
+		rm -f "$PIDFILE"
+	fi
+}
+
+run_getty_loop() {
+	while [ -c /dev/ttyGS0 ]; do
+		/sbin/getty -L ttyGS0 115200 vt100 &
+		echo $! >"$PIDFILE"
+		wait "$(cat "$PIDFILE")" 2>/dev/null
+		rm -f "$PIDFILE"
+		# Back off so a missing host does not spin the CPU
+		[ -c /dev/ttyGS0 ] || break
+		sleep 5
+	done
+	rm -f "$WRAPPER_PIDFILE" "$PIDFILE"
+}
+
+case "${ACTION:-add}" in
+add|"")
+	[ -c /dev/ttyGS0 ] || exit 0
+	if [ -f "$WRAPPER_PIDFILE" ] && kill -0 "$(cat "$WRAPPER_PIDFILE")" 2>/dev/null; then
+		exit 0
+	fi
+	run_getty_loop &
+	echo $! >"$WRAPPER_PIDFILE"
+	;;
+remove)
+	stop_getty
+	;;
+esac
+
+exit 0

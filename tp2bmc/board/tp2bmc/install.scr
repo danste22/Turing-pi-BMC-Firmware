@@ -12,16 +12,19 @@ if test "${bootmode}" != "safemode"; then
 	if test -e ${devtype} ${devnum}:${distro_bootpart} ${installer_marker}; then
 		echo ...exists: entering installer
 
-        # read hardware version from EEPROM
-        tpi_info hw_version tpi_hw_version
-        linux_bootpart=2
+		# tpi_fit_config from board_late_init(); EEPROM hw_version for installer log only.
+		tpi_info hw_version tpi_hw_version
 
-		# Load image, initramfs, and FDT
-		if load ${devtype} ${devnum}:${linux_bootpart} ${loadaddr} /boot/turing-pi2.itb \
+		# Load kernel FIT and installer initramfs from the FAT boot partition
+		if load ${devtype} ${devnum}:${distro_bootpart} ${loadaddr} /boot/turing-pi2.itb \
 			&& load ${devtype} ${devnum}:${distro_bootpart} ${ramdisk_addr_r} /boot/install.img
 		then
 			env set bootargs loglevel=4
-            bootm ${loadaddr}#config-${tpi_hw_version:-v2.4.0} ${ramdisk_addr_r}
+			echo Installer FIT ${tpi_fit_config} (EEPROM ${tpi_hw_version})
+			bootm ${loadaddr}#${tpi_fit_config} ${ramdisk_addr_r}
+		else
+			echo Failed to load installer files from boot partition
+			echo Expected /boot/turing-pi2.itb and /boot/install.img on partition ${distro_bootpart}
 		fi
 	else
 		echo ...does not exist: proceeding with normal boot

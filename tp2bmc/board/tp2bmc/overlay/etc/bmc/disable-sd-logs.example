@@ -1,0 +1,2 @@
+# Rename to disable-sd-logs to skip mounting the optional bmc-logs SD partition.
+# The BMC works without an SD card; logs then stay on the overlay only.

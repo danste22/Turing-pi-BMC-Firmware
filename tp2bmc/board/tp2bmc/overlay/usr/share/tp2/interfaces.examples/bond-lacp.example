@@ -1,0 +1,35 @@
+# LACP uplink: ge0+ge1 → bond0 → br0 (802.3ad, HW LAG with layer2+3).
+# Requires LACP on upstream (e.g. OPNsense lagg0 on igb0+igb2).
+# Requires kernel patch net-dsa/0003 for node→WAN ASIC forwarding.
+#
+# Preferred activation via tp2-net-config:
+#   cp /etc/tp2/network.conf.example /etc/tp2/network.conf
+#   # set [bond] enabled=1, mode=802.3ad
+#   tp2-net-config apply
+#
+# Manual activation (legacy):
+#   mv /etc/network/interfaces.d/00-br0-flat /etc/network/interfaces.d/00-br0-flat.disabled
+#   cp /usr/share/tp2/interfaces.examples/bond-lacp.example /etc/network/interfaces.d/10-bond-lacp
+#   ifdown -af 2>/dev/null; /etc/network/tp2-bond-down.sh; sleep 1; ifup -af
+#
+# Verify:
+#   cat /proc/net/bonding/bond0
+#   bridge link show
+#   dmesg | grep 'LAG bridge uplink fixup'
+
+auto bond0
+iface bond0 inet manual
+  pre-up /etc/network/tp2-bond-up.sh lacp
+  pre-down /etc/network/tp2-bond-down.sh
+
+auto br0
+iface br0 inet dhcp
+  use bridge
+  requires bond0
+  bridge-ports node1 node2 node3 node4 bond0
+  pre-up /etc/network/nfs_check
+  pre-up /etc/network/tp2-bond-wait-lacp.sh bond0 60
+  post-up /etc/network/tp2-lag-bridge-fixup-refresh.sh
+  udhcpc-opts "-t 25 -T 2"
+  wait-delay 15
+  hostname $(hostname)

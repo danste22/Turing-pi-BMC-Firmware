@@ -1,0 +1,19 @@
+#!/bin/sh
+# After S40network (+ S41 bond DHCP): re-apply /etc/tp2/network.conf when it
+# enables bonding or per-port VLANs. interfaces.d alone cannot persist those.
+
+case "$1" in
+start|"")
+	[ -x /usr/sbin/tp2-net-config ] || exit 0
+	[ -r /etc/tp2/network.conf ] || exit 0
+	/usr/sbin/tp2-net-config boot
+	;;
+stop)
+	;;
+*)
+	echo "Usage: $0 {start|stop}"
+	exit 1
+	;;
+esac
+
+exit 0

@@ -1,0 +1,40 @@
+# LACP bond + VLAN-aware bridge + optional L3 VLAN subinterface.
+# Requires /etc/tp2/bridge-vlan.conf BEFORE ifup (untagged DHCP needs native VLAN on bond0).
+#
+#   cp /etc/tp2/bridge-vlan.conf.example /etc/tp2/bridge-vlan.conf
+#   # edit [port.*] sections, then:
+#   disable 00-br0-flat, copy /usr/share/tp2/interfaces.examples/br0-vlan-bond.example to e.g. 20-vlan-bond, ifup -a
+#
+# Flat LACP (no VLANs): use bond-lacp.example instead — do not enable vlan_filtering.
+
+auto bond0
+iface bond0 inet manual
+  use bond
+  pre-up modprobe bonding
+  pre-up ip link set dev ge0 down
+  pre-up ip link set dev ge1 down
+  bond-slaves ge0 ge1
+  bond-mode 802.3ad
+  bond-miimon 100
+  bond-xmit-hash-policy layer2+3
+  bond-lacp-rate fast
+
+auto br0
+iface br0 inet dhcp
+  use bridge
+  requires bond0
+  bridge-ports node1 node2 node3 node4 bond0
+  pre-up /etc/network/nfs_check
+  pre-up /etc/network/set_br0_mac_pre_dhcp.sh
+  pre-up /etc/network/tp2-bond-wait-lacp.sh bond0 60
+  post-up /etc/network/tp2-bridge-vlan.sh apply
+  pre-down /etc/network/tp2-bridge-vlan.sh clear
+  wait-delay 15
+  hostname $(hostname)
+
+# Optional L3 on VLAN 100 atop bond0 (edit address for your lab)
+# auto bond0.100
+# iface bond0.100 inet static
+#   address 10.0.100.2
+#   netmask 255.255.255.0
+#   vlan-raw-device bond0

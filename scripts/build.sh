@@ -98,7 +98,7 @@ if "${cmd[@]}"; then
             # OTA image exists, copy it to dist
             echo "Copying OTA image"
             cp -v "${build_root}/output/images/rootfs.erofs" "${dist}/${OTA_FILENAME}"
-            
+
             # The image is a binary image therefor use sha256sum binary mode
             echo "Generating SHA256 for: ${OTA_FILENAME}.sha256"
             sha256sum -b "${dist}/${OTA_FILENAME}" > "${dist}/${OTA_FILENAME}.sha256"

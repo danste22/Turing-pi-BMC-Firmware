@@ -1,0 +1,2 @@
+#!/bin/sh
+exec /etc/network/tp2-net-config.sh "$@"

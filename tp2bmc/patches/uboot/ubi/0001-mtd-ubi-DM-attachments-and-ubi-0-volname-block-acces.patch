@@ -1,0 +1,438 @@
+From c7e61ab82fa2505adafe1c91826096ff6f4622b7 Mon Sep 17 00:00:00 2001
+From: danste22 <daniel@steinhauf.eu>
+Date: Tue, 8 Sep 2026 10:27:15 +0200
+Subject: [PATCH] mtd: ubi: DM attachments and ubi 0:volname block access
+
+Register UBI attachments as DM devices, bind block devices for volumes,
+and let disk/part resolve 'ubi 0:rootfs' when UBIFS is not mounted.
+
+Signed-off-by: danste22 <daniel@steinhauf.eu>
+Co-authored-by: Cursor <cursoragent@cursor.com>
+---
+ cmd/ubi.c                    |  24 ++++
+ disk/part.c                  |  72 ++++++++++--
+ drivers/mtd/ubi/Makefile     |   1 +
+ drivers/mtd/ubi/ubi-uclass.c | 214 +++++++++++++++++++++++++++++++++++
+ include/dm/uclass-id.h       |   1 +
+ include/ubi_uboot.h          |   9 ++
+ 6 files changed, 313 insertions(+), 8 deletions(-)
+ create mode 100644 drivers/mtd/ubi/ubi-uclass.c
+
+diff --git a/cmd/ubi.c b/cmd/ubi.c
+index 93de6f3aea2..1c50370773e 100644
+--- a/cmd/ubi.c
++++ b/cmd/ubi.c
+@@ -32,6 +32,12 @@
+ #undef ubi_msg
+ #define ubi_msg(fmt, ...) printf("UBI: " fmt "\n", ##__VA_ARGS__)
+ 
++#if (defined(CONFIG_UBI_DEFAULT_VID_OFFSET) && CONFIG_UBI_DEFAULT_VID_OFFSET > 0) || \
++	(defined(CONFIG_ENV_UBI_VID_OFFSET) && CONFIG_ENV_UBI_VID_OFFSET > 0)
++#define UBI_CMD_VID_STR1(x) #x
++#define UBI_CMD_VID_STR(x) UBI_CMD_VID_STR1(x)
++#endif
++
+ /* Private own data */
+ static struct ubi_device *ubi;
+ 
+@@ -592,6 +598,13 @@ static int ubi_dev_scan(struct mtd_info *info, const char *vid_header_offset)
+ 	char ubi_mtd_param_buffer[80];
+ 	int err;
+ 
++	if (!vid_header_offset) {
++#if defined(CONFIG_UBI_DEFAULT_VID_OFFSET) && CONFIG_UBI_DEFAULT_VID_OFFSET > 0
++		vid_header_offset = UBI_CMD_VID_STR(CONFIG_UBI_DEFAULT_VID_OFFSET);
++#elif defined(CONFIG_ENV_UBI_VID_OFFSET) && CONFIG_ENV_UBI_VID_OFFSET > 0
++		vid_header_offset = UBI_CMD_VID_STR(CONFIG_ENV_UBI_VID_OFFSET);
++#endif
++	}
+ 	if (!vid_header_offset)
+ 		sprintf(ubi_mtd_param_buffer, "%s", info->name);
+ 	else
+@@ -647,6 +660,13 @@ static int ubi_detach(void)
+ 		cmd_ubifs_umount();
+ #endif
+ 
++#ifdef CONFIG_DM_MTD
++	/*
++	 * Clean up any UBI devices in DM
++	 */
++	ubi_dm_unbind_all();
++#endif
++
+ 	/*
+ 	 * Call ubi_exit() before re-initializing the UBI subsystem
+ 	 */
+@@ -685,6 +705,10 @@ int ubi_part(char *part_name, const char *vid_header_offset)
+ 		return err;
+ 	}
+ 
++#ifdef CONFIG_DM_MTD
++	ubi_dm_bind(0);
++#endif
++
+ 	ubi = ubi_devices[0];
+ 
+ 	return 0;
+diff --git a/disk/part.c b/disk/part.c
+index 4923dc44593..0ddaa5c48df 100644
+--- a/disk/part.c
++++ b/disk/part.c
+@@ -12,7 +12,12 @@
+ #include <malloc.h>
+ #include <part.h>
+ #include <ubifs_uboot.h>
++#include <ubi_uboot.h>
++#include <dm.h>
++#include <dm/device-internal.h>
+ #include <dm/uclass.h>
++#include <dm/uclass-internal.h>
++#include <string.h>
+ 
+ #undef	PART_DEBUG
+ 
+@@ -484,21 +489,72 @@ int blk_get_device_part_str(const char *ifname, const char *dev_part_str,
+ 
+ #if IS_ENABLED(CONFIG_CMD_UBIFS) && !IS_ENABLED(CONFIG_XPL_BUILD)
+ 	/*
+-	 * Special-case ubi, ubi goes through a mtd, rather than through
+-	 * a regular block device.
++	 * Special-case ubifs, which does not go through the block device layer
++	 * and also must be mounted ahead of time. U-Boot has historically
++	 * called this "ubi" too, even though *static* UBI volumes are
++	 * accessible as block devices. For backward compatibility, assume that
++	 * when UBIFS is mounted, the user intends "ubi" to mean "ubifs."
+ 	 */
+-	if (!strcmp(ifname, "ubi")) {
+-		if (!ubifs_is_mounted()) {
+-			printf("UBIFS not mounted, use ubifsmount to mount volume first!\n");
+-			return -EINVAL;
+-		}
+-
++	if (ubifs_is_mounted() && !strcmp(ifname, "ubi")) {
+ 		strcpy((char *)info->type, BOOT_PART_TYPE);
+ 		strcpy((char *)info->name, "UBI");
+ 		return 0;
+ 	}
+ #endif
+ 
++#if IS_ENABLED(CONFIG_CMD_UBI) && !IS_ENABLED(CONFIG_SPL_BUILD)
++	/*
++	 * Also special-case UBI, which may use names to find the specific
++	 * volumes, so this deviates a bit from the typical devnum:partnum
++	 * syntax.
++	 */
++	if (!strcmp(ifname, "ubi")) {
++		dev = dectoul(dev_part_str, &ep);
++		if (*ep == ':') {
++			struct udevice *ubi_dev = NULL;
++			struct udevice *vol_dev = NULL;
++			part_str = &ep[1];
++
++			ret = uclass_find_device(UCLASS_UBI, dev, &ubi_dev);
++			if (!ubi_dev || ret) {
++				printf("** Cannot find UBI %x\n", dev);
++				return -EINVAL;
++			}
++
++			part = dectoul(part_str, &ep);
++			if (!*ep) {
++				struct udevice *tmp_dev;
++				device_foreach_child(tmp_dev, ubi_dev) {
++					struct blk_desc *desc = dev_get_uclass_plat(tmp_dev);
++					if (desc->devnum == part) {
++						vol_dev = tmp_dev;
++						break;
++					}
++				}
++			} else {
++				ret = ubi_find_volume_dev(ubi_dev, part_str,
++							  &vol_dev);
++			}
++
++			if (!vol_dev || ret) {
++				printf("** UBI volume %s not found\n", part_str);
++				return -EINVAL;
++			}
++
++			ret = device_probe(vol_dev);
++			if (ret)
++				return ret;
++
++			*desc = dev_get_uclass_plat(vol_dev);
++			part_get_info_whole_disk(*desc, info);
++			return 0;
++		}
++
++		printf("UBIFS not mounted, use ubifsmount to mount volume first!\n");
++		return -EINVAL;
++	}
++#endif
++
+ 	/* If no dev_part_str, use bootdevice environment variable */
+ 	if (CONFIG_IS_ENABLED(ENV_SUPPORT)) {
+ 		if (!dev_part_str || !strlen(dev_part_str) ||
+diff --git a/drivers/mtd/ubi/Makefile b/drivers/mtd/ubi/Makefile
+index 690ef9e901a..a535f6921fa 100644
+--- a/drivers/mtd/ubi/Makefile
++++ b/drivers/mtd/ubi/Makefile
+@@ -8,3 +8,4 @@ obj-$(CONFIG_MTD_UBI_FASTMAP) += fastmap.o
+ obj-y += misc.o
+ obj-y += debug.o
+ obj-$(CONFIG_UBI_BLOCK) += block.o part.o
++obj-$(CONFIG_DM_MTD) += ubi-uclass.o
+diff --git a/drivers/mtd/ubi/ubi-uclass.c b/drivers/mtd/ubi/ubi-uclass.c
+new file mode 100644
+index 00000000000..2990b146e66
+--- /dev/null
++++ b/drivers/mtd/ubi/ubi-uclass.c
+@@ -0,0 +1,214 @@
++// SPDX-License-Identifier: GPL-2.0
++/**
++ * ubi-uclass.c - UBI partition and volume block device uclass driver
++ *
++ * Copyright (C) 2023 Sam Edwards <CFSworks@gmail.com>
++ */
++
++#define LOG_CATEGORY UCLASS_UBI
++
++#include <blk.h>
++#include <log.h>
++#include <dm.h>
++#include <dm/device-internal.h>
++#include <ubi_uboot.h>
++
++static ulong ubi_bread(struct udevice *dev, lbaint_t lba, lbaint_t blkcnt,
++		       void *dst)
++{
++	int err, lnum;
++	struct blk_desc *blk = dev_get_uclass_plat(dev);
++	struct ubi_device *ubi = dev_get_plat(dev->parent);
++	struct ubi_volume *vol = ubi->volumes[blk->devnum];
++	lbaint_t lba_per_peb = vol->usable_leb_size / blk->blksz;
++	lbaint_t lba_off, lba_len, total = 0;
++
++	while (blkcnt) {
++		lnum = lba / lba_per_peb;
++		lba_off = lba % lba_per_peb;
++		lba_len = lba_per_peb - lba_off;
++		if (lba_len > blkcnt)
++			lba_len = blkcnt;
++
++		err = ubi_eba_read_leb(ubi, vol, lnum, dst,
++				       lba_off << blk->log2blksz,
++				       lba_len << blk->log2blksz, 0);
++		if (err) {
++			pr_err("UBI read error %x\n", err);
++			break;
++		}
++
++		lba += lba_len;
++		blkcnt -= lba_len;
++		dst += lba_len << blk->log2blksz;
++		total += lba_len;
++	}
++
++	return total;
++}
++
++static const struct blk_ops ubi_block_ops = {
++	.read 	= ubi_bread,
++};
++
++U_BOOT_DRIVER(ubi_block) = {
++	.name	= "ubi_block",
++	.id	= UCLASS_BLK,
++	.ops	= &ubi_block_ops,
++};
++
++static bool is_power_of_two(unsigned int x)
++{
++	return (x & -x) == x;
++}
++
++static unsigned int choose_blksz_for_volume(const struct ubi_volume *vol)
++{
++	/*
++	 * U-Boot assumes a power-of-two blksz; however, UBI LEBs are
++	 * very often not suitably sized. To solve this, we divide the
++	 * LEBs into a whole number of LBAs per LEB, such that each LBA
++	 * addresses a power-of-two-sized block. To choose the blksz,
++	 * we either:
++	 * 1) Use the volume alignment, if it's a non-unity power of
++	 *    two. The LEB size is a multiple of this alignment, and it
++	 *    allows the user to force a particular blksz if needed for
++	 *    their use case.
++	 * 2) Otherwise, find the greatest power-of-two factor of the
++	 *    LEB size.
++	 */
++	if (vol->alignment > 1 && is_power_of_two(vol->alignment))
++		return vol->alignment;
++
++	unsigned int blksz = 1;
++	while ((vol->usable_leb_size & blksz) == 0)
++		blksz <<= 1;
++	return blksz;
++}
++
++static int ubi_post_bind(struct udevice *dev)
++{
++	int i;
++	int ret;
++	unsigned int blksz;
++	lbaint_t lba;
++	struct udevice *blkdev;
++	struct ubi_device *ubi = dev_get_plat(dev);
++
++	for (i = 0; i < ubi->vtbl_slots; i++) {
++		struct ubi_volume *vol = ubi->volumes[i];
++		if (!vol || vol->vol_id >= UBI_INTERNAL_VOL_START ||
++		    vol->vol_type != UBI_STATIC_VOLUME)
++			continue;
++
++		if (vol->updating || vol->upd_marker) {
++			pr_err("** UBI volume %d (\"%s\") midupdate; ignored\n",
++			       vol->vol_id, vol->name);
++			continue;
++		}
++
++		blksz = choose_blksz_for_volume(vol);
++		lba = DIV_ROUND_UP((unsigned long long)vol->used_bytes, blksz);
++
++		pr_debug("UBI volume %d (\"%s\"): %lu blocks, %d bytes each\n",
++			 vol->vol_id, vol->name, lba, blksz);
++
++		ret = blk_create_devicef(dev, "ubi_block", vol->name, UCLASS_UBI,
++				       vol->vol_id, blksz, lba, &blkdev);
++		if (ret)
++			return ret;
++	}
++
++	return 0;
++}
++
++int ubi_find_volume_dev(struct udevice *ubi_dev, const char *name,
++			struct udevice **vol_dev)
++{
++	struct udevice *tmp_dev;
++	int ret;
++
++	*vol_dev = NULL;
++
++	ret = device_find_child_by_name(ubi_dev, name, vol_dev);
++	if (!ret && *vol_dev)
++		return 0;
++
++	/*
++	 * blk_create_devicef() names children as "<parent>.<volume>"
++	 * (e.g. "ubi0.rootfs"). Match bare volume names on the suffix.
++	 */
++	device_foreach_child(tmp_dev, ubi_dev) {
++		const char *base = strrchr(tmp_dev->name, '.');
++
++		base = base ? base + 1 : tmp_dev->name;
++		if (!strcmp(base, name)) {
++			*vol_dev = tmp_dev;
++			return 0;
++		}
++	}
++
++	return -ENODEV;
++}
++
++int ubi_dm_bind(unsigned int index)
++{
++	struct udevice *dev;
++	int ret;
++	char name[16];
++	const char *name_dup;
++	struct ubi_device *ubi = ubi_devices[index];
++	const struct mtd_info *mtd = ubi->mtd;
++
++	/* MTD partitions are not in DM; navigate to the real MTD device */
++	if (mtd->parent)
++		mtd = mtd->parent;
++
++	snprintf(name, sizeof(name), "ubi%u", index);
++	name_dup = strdup(name);
++	ret = device_bind(mtd->dev, DM_DRIVER_GET(ubi), name_dup, ubi,
++			  ofnode_null(), &dev);
++	if (ret) {
++		free((void *)name_dup);
++		return ret;
++	}
++
++	device_set_name_alloced(dev);
++
++	return 0;
++}
++
++int ubi_dm_unbind_all(void)
++{
++	int ret;
++	struct uclass *uc;
++	struct udevice *dev;
++	struct udevice *next;
++
++	ret = uclass_get(UCLASS_UBI, &uc);
++	if (ret)
++		return ret;
++
++	uclass_foreach_dev_safe(dev, next, uc) {
++		ret = device_remove(dev, DM_REMOVE_NORMAL);
++		if (ret)
++			return ret;
++
++		ret = device_unbind(dev);
++		if (ret)
++			return ret;
++	}
++
++	return 0;
++}
++
++U_BOOT_DRIVER(ubi) = {
++	.id		= UCLASS_UBI,
++	.name		= "ubi_dev",
++};
++
++UCLASS_DRIVER(ubi) = {
++	.id		= UCLASS_UBI,
++	.name		= "ubi",
++	.post_bind	= ubi_post_bind,
++};
+diff --git a/include/dm/uclass-id.h b/include/dm/uclass-id.h
+index 36b5d87c304..1402085689f 100644
+--- a/include/dm/uclass-id.h
++++ b/include/dm/uclass-id.h
+@@ -149,6 +149,7 @@ enum uclass_id {
+ 	UCLASS_THERMAL,		/* Thermal sensor */
+ 	UCLASS_TIMER,		/* Timer device */
+ 	UCLASS_TPM,		/* Trusted Platform Module TIS interface */
++	UCLASS_UBI,		/* Unsorted Block Images MTD partition */
+ 	UCLASS_UFS,		/* Universal Flash Storage */
+ 	UCLASS_USB,		/* USB bus */
+ 	UCLASS_USB_DEV_GENERIC,	/* USB generic device */
+diff --git a/include/ubi_uboot.h b/include/ubi_uboot.h
+index ea0db69c72a..30204901c71 100644
+--- a/include/ubi_uboot.h
++++ b/include/ubi_uboot.h
+@@ -51,6 +51,15 @@ extern int ubi_part(char *part_name, const char *vid_header_offset);
+ extern int ubi_volume_write(char *volume, void *buf, loff_t offset, size_t size);
+ extern int ubi_volume_read(char *volume, char *buf, loff_t offset, size_t size);
+ 
++#ifdef CONFIG_DM_MTD
++extern int ubi_dm_bind(unsigned int);
++extern int ubi_dm_unbind_all(void);
++#endif
++
++struct udevice;
++int ubi_find_volume_dev(struct udevice *ubi_dev, const char *name,
++			struct udevice **vol_dev);
++
+ extern struct ubi_device *ubi_devices[];
+ int cmd_ubifs_mount(char *vol_name);
+ int cmd_ubifs_umount(void);
+-- 
+2.50.1 (Apple Git-155)
+

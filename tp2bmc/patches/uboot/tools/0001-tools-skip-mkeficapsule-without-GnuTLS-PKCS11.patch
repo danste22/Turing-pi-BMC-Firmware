@@ -1,0 +1,44 @@
+From 7c1d0e9a0b4c6e8f1a2b3c4d5e6f708192a3b4c5 Mon Sep 17 00:00:00 2001
+From: danste22 <daniel@steinhauf.eu>
+Date: Tue, 8 Sep 2026 15:55:00 +0200
+Subject: [PATCH] tools: skip mkeficapsule when host GnuTLS has no PKCS#11
+
+Since 0c716a157be ("tools: mkeficapsule: Add support for pkcs11") the
+host tool always references gnutls_pkcs11_*. Buildroot's host GnuTLS is
+built without p11-kit, so `make tools` fails:
+
+  undefined reference to `gnutls_pkcs11_init'
+
+CONFIG_TOOLS_MKEFICAPSULE defaults to y when EFI_LOADER is on, which is
+the ARMv7 default. Probe p11-kit via pkg-config and skip the tool when
+the host library cannot link it. This board does not use EFI capsules.
+
+Signed-off-by: danste22 <daniel@steinhauf.eu>
+---
+ tools/Makefile | 9 +++++++++
+ 1 file changed, 9 insertions(+)
+
+diff --git a/tools/Makefile b/tools/Makefile
+index 1a5f425ecda..a46967fc732 100644
+--- a/tools/Makefile
++++ b/tools/Makefile
+@@ -270,7 +270,16 @@ mkeficapsule-objs := generated/lib/uuid.o \
+ 	generated/lib/sha1.o \
+ 	$(LIBFDT_OBJS) \
+ 	mkeficapsule.o
++# GnuTLS PKCS#11 needs p11-kit. Skip the tool when the host library
++# cannot satisfy gnutls_pkcs11_* (typical Buildroot host GnuTLS).
++GNUTLS_PKCS11 := $(shell pkg-config --exists gnutls && \
++	pkg-config --libs --print-requires-private gnutls 2>/dev/null | \
++	grep -q p11-kit && echo y)
++ifeq ($(GNUTLS_PKCS11),y)
+ hostprogs-always-$(CONFIG_TOOLS_MKEFICAPSULE) += mkeficapsule
++else ifneq ($(CONFIG_TOOLS_MKEFICAPSULE),)
++$(warning skipping mkeficapsule: host GnuTLS has no PKCS#11/p11-kit)
++endif
+ 
+ include tools/fwumdata_src/fwumdata.mk
+ 
+
+-- 
+2.39.0

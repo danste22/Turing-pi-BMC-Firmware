@@ -1,0 +1,10 @@
+# Sourced by /etc/init.d/S01syslogd (Buildroot). Do not start syslogd here.
+SYSLOGD_ARGS="-m 0"
+
+if [ -f /etc/bmc/syslog-remote ]; then
+	# shellcheck disable=SC1091
+	. /etc/bmc/syslog-remote
+	if [ -n "$SYSLOG_REMOTE" ]; then
+		SYSLOGD_ARGS="$SYSLOGD_ARGS -L -R $SYSLOG_REMOTE"
+	fi
+fi

@@ -1,0 +1,35 @@
+# DSA bridge port VLAN — standalone config for tp2-bridge-vlan.sh.
+# Prefer using /etc/tp2/network.conf with tp2-net-config instead (unified).
+#
+#   cp /etc/tp2/bridge-vlan.conf.example /etc/tp2/bridge-vlan.conf
+#   # enable br0-vlan-bond.example or add to your br0 stanza:
+#   #   post-up ip link set br0 type bridge vlan_filtering 1
+#   #   post-up /etc/network/tp2-bridge-vlan.sh apply
+#   #   pre-down /etc/network/tp2-bridge-vlan.sh clear
+
+[bridge]
+# Set 1 to force vlan_filtering on apply (also enabled when any [port.*] is present).
+vlan_filtering=1
+
+# --- Per-port VLAN (netdev = DSA label: node1..node4, ge0, ge1, bond0) ---
+
+# Example: node2 access VLAN 100
+# [port.node2]
+# mode=access
+# vlan=100
+
+# Example: node3 trunk — native 1 + tagged 200,300
+# [port.node3]
+# mode=trunk
+# native=1
+# vlans=200,300
+
+# Example: LACP uplink trunk (use with bond-lacp / br0-vlan-bond profile)
+# [port.bond0]
+# mode=trunk
+# native=1
+# vlans=10,20
+
+# [port.node1]
+# mode=access
+# vlan=10

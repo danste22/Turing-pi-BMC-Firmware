@@ -1,7 +1,17 @@
 buildroot
 buildroot-*
 .DS_Store
+.cursor/
 .devcontainer/.bash_history
 dist
 wip
-tmp
+.idea
+
+# Local patch-audit helpers — keep locally, not in public PRs.
+tp2bmc/patches/linux/scripts/
+
+# Maintainer notes and kernel-iteration tools — keep locally, not in public PRs.
+tp2bmc/patches/linux/KERNEL_UPGRADE_LOG.md
+tp2bmc/patches/uboot/UBOOT_UPGRADE_LOG.md
+tp2bmc/scripts/kernel-patch-tool.sh
+tp2bmc/scripts/kernel-history-tool.sh

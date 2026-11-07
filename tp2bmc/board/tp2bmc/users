@@ -1,0 +1,5 @@
+# username uid group gid password home shell groups comment
+# Login user (sudo to root). Root password stays for serial/OTG recovery.
+# avahi, chrony, sshd, uuidd, collectd users come from their packages.
+- -1 sudo -1 - - - - sudo group
+turing -1 turing -1 =turing /home/turing /bin/sh sudo,dialout Turing Pi operator

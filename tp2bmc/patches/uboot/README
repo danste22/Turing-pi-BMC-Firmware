@@ -1,0 +1,18 @@
+U-Boot is built from upstream **v2026.07** plus patches under this tree.
+
+  BR2_TARGET_UBOOT_CUSTOM_VERSION_VALUE="2026.07"
+  BR2_TARGET_UBOOT_PATCH = sunxi usb ubi i2c spl board tools
+
+Do not pin danste22/Turing-pi-u-boot from Buildroot. The fork at
+`../turing-bmc-bootloader` (branch `tp2-v2026.07`) is the working copy used
+to export these patches with `git format-patch`.
+
+| Directory | Role |
+|-----------|------|
+| sunxi | SPL SPI NAND + T113/R528 |
+| usb | musb UDC/DM gadget |
+| ubi | DM UBI + `ubi 0:volname` |
+| i2c | mvtwsi early EEPROM read + i2c2 pinmux |
+| spl | bloblist handoff |
+| board | EEPROM MAC (read-only), v2.5+ UBI 255 MiB, switch reset-release only |
+| tools | skip mkeficapsule unless host GnuTLS has p11-kit |

@@ -1,0 +1,28 @@
+#!/bin/sh
+# Attach to an existing GNU screen session for a node UART, or create one.
+# Invoked as node1..node4 (wrappers) or: node-console nodeN
+set -eu
+
+name=${1:-}
+
+case "$name" in
+	node1) dev=/dev/ttyS1 ;;
+	node2) dev=/dev/ttyS2 ;;
+	node3) dev=/dev/ttyS3 ;;
+	node4) dev=/dev/ttyS4 ;;
+	*)
+		echo "usage: node1|node2|node3|node4" >&2
+		exit 1
+		;;
+esac
+
+# screen -ls <name> matches pid.name; do not start a second session.
+lsout=$(screen -ls "$name" 2>/dev/null || true)
+case "$lsout" in
+	*".${name}"*)
+		# Attached → multi-display join (-x). Detached → resume (-r).
+		exec screen -x "$name" || exec screen -r "$name"
+		;;
+esac
+
+exec screen -S "$name" "$dev" 115200

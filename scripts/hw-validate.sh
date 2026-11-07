@@ -1,0 +1,1 @@
+../tp2bmc/board/tp2bmc/overlay/usr/share/tp2/hw-validate.sh

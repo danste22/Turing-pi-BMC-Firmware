@@ -1,0 +1,52 @@
+#!/bin/sh
+# Default-deny INPUT/FORWARD. OUTPUT accept. Rules: /etc/iptables/rules.v{4,6}
+
+start() {
+	printf 'Starting iptables: '
+	if [ -x /usr/sbin/iptables-restore ] && [ -f /etc/iptables/rules.v4 ]; then
+		/usr/sbin/iptables-restore < /etc/iptables/rules.v4 || {
+			echo FAIL
+			return 1
+		}
+	elif [ -x /sbin/iptables-restore ] && [ -f /etc/iptables/rules.v4 ]; then
+		/sbin/iptables-restore < /etc/iptables/rules.v4 || {
+			echo FAIL
+			return 1
+		}
+	else
+		echo FAIL
+		return 1
+	fi
+	if [ -f /etc/iptables/rules.v6 ]; then
+		if [ -x /usr/sbin/ip6tables-restore ]; then
+			/usr/sbin/ip6tables-restore < /etc/iptables/rules.v6 || true
+		elif [ -x /sbin/ip6tables-restore ]; then
+			/sbin/ip6tables-restore < /etc/iptables/rules.v6 || true
+		fi
+	fi
+	echo OK
+}
+
+stop() {
+	printf 'Stopping iptables: '
+	iptables -F 2>/dev/null || true
+	iptables -P INPUT ACCEPT 2>/dev/null || true
+	iptables -P FORWARD ACCEPT 2>/dev/null || true
+	ip6tables -F 2>/dev/null || true
+	ip6tables -P INPUT ACCEPT 2>/dev/null || true
+	ip6tables -P FORWARD ACCEPT 2>/dev/null || true
+	echo OK
+}
+
+case "$1" in
+	start|"") start ;;
+	stop) stop ;;
+	restart|reload)
+		stop
+		start
+		;;
+	*)
+		echo "Usage: $0 {start|stop|restart}"
+		exit 1
+		;;
+esac

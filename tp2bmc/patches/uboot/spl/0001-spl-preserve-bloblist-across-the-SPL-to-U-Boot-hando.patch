@@ -1,0 +1,55 @@
+From 69d820b8c8834826c6f30b9e3ff63f9578dbbb30 Mon Sep 17 00:00:00 2001
+From: danste22 <daniel@steinhauf.eu>
+Date: Tue, 8 Sep 2026 10:27:16 +0200
+Subject: [PATCH] spl: preserve bloblist across the SPL to U-Boot handoff
+
+Keep the Turing Pi 2 EEPROM board-info bloblist intact so U-Boot proper
+can apply the factory MAC and FIT config without a second I2C read.
+
+Signed-off-by: danste22 <daniel@steinhauf.eu>
+Co-authored-by: Cursor <cursoragent@cursor.com>
+---
+ common/spl/spl.c | 2 +-
+ include/spl.h    | 6 ++++--
+ 2 files changed, 5 insertions(+), 3 deletions(-)
+
+diff --git a/common/spl/spl.c b/common/spl/spl.c
+index 722b18c98ed..beaee3603b0 100644
+--- a/common/spl/spl.c
++++ b/common/spl/spl.c
+@@ -697,7 +697,7 @@ void board_init_r(gd_t *dummy1, ulong dummy2)
+ 	}
+ 	timer_init();
+ 	if (CONFIG_IS_ENABLED(BLOBLIST)) {
+-		ret = bloblist_init();
++		ret = bloblist_maybe_init();
+ 		if (ret) {
+ 			debug("%s: Failed to set up bloblist: ret=%d\n",
+ 			      __func__, ret);
+diff --git a/include/spl.h b/include/spl.h
+index 5078d7525ab..5c6fea471ac 100644
+--- a/include/spl.h
++++ b/include/spl.h
+@@ -286,7 +286,8 @@ struct spl_image_info {
+ 	u8 os;
+ 	ulong load_addr;
+ 	ulong entry_point;
+-#if CONFIG_IS_ENABLED(LOAD_FIT) || CONFIG_IS_ENABLED(LOAD_FIT_FULL)
++#if CONFIG_IS_ENABLED(LOAD_FIT) || CONFIG_IS_ENABLED(LOAD_FIT_FULL) || \
++	CONFIG_IS_ENABLED(SPL_LOAD_FIT)
+ 	void *fdt_addr;
+ #endif
+ #if defined(CONFIG_BOOTM_OPTEE) && defined(CONFIG_ARM) && !defined(CONFIG_ARM64)
+@@ -318,7 +319,8 @@ typedef void __noreturn (*spl_jump_to_image_t)(struct spl_image_info *);
+ 
+ static inline void *spl_image_fdt_addr(struct spl_image_info *info)
+ {
+-#if CONFIG_IS_ENABLED(LOAD_FIT) || CONFIG_IS_ENABLED(LOAD_FIT_FULL)
++#if CONFIG_IS_ENABLED(LOAD_FIT) || CONFIG_IS_ENABLED(LOAD_FIT_FULL) || \
++	CONFIG_IS_ENABLED(SPL_LOAD_FIT)
+ 	return info->fdt_addr;
+ #else
+ 	return 0;
+-- 
+2.50.1 (Apple Git-155)
+

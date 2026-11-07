@@ -7,7 +7,7 @@ The Turing Pi is a compact AI & edge computing cluster purposed to run cloud
 stacks and AI inference at the edge. Find out more on our
 [website](https://turingpi.com).
 
-The firmware is based on a Linux 5.4 kernel and hosts a web interface with a
+The firmware is based on a **Linux** kernel (version pinned in [this table](#versions-defined-in-this-repository)) and hosts a web interface with a
 REST API to control and manage the board. The packages
 [bmcd](https://www.github.com/turing-machines/bmcd),
 [tpi](https://github.com/turing-machines/tpi) and
@@ -20,6 +20,7 @@ facilitate most of this functionality.
 - [Reporting issues \& requesting features](#reporting-issues--requesting-features)
 - [BMC chip specs](#bmc-chip-specs)
 - [Install firmware](#install-firmware)
+- [Default login, SSH, and firewall](#default-login-ssh-and-firewall)
 - [Build / Development](#build--development)
 - [Quickstart](#quickstart)
 - [Start DevContainer](#start-devcontainer)
@@ -36,6 +37,8 @@ facilitate most of this functionality.
   - [Native](#native)
 - [Output](#output)
 - [Development](#development)
+  - [BMC hardware overview](#bmc-hardware-overview)
+  - [BMC rootfs software inventory](#bmc-rootfs-software-inventory)
 
 ## Reporting issues & requesting features
 
@@ -48,20 +51,20 @@ visibility reasons, we will mainly use the issue tracker of this repository.
 
 - CPU Allwinner T113-S3 (ARM Cortex-A7)
 - 128 MB DDR3 RAM
-- 128 MB SPI NAND flash (MX35LF1GE4AB)
+- SPI NAND flash — **128 MB** (Macronix MX35LF1GE4AB) on V2.3 / V2.4 boards; **256 MB** (Macronix MX35LF2GE4AD) on V2.5.2 boards
 - EEPROM (24C02C)
-- 3 port Gigabit Ethernet Switch (RTL8370MB)
+- Ethernet switch: Realtek RTL8370MB (DSA: four node ports, two front-panel Gigabit RJ45s, one CPU/RMII uplink)
 - Ethernet PHYceiver (RTL8201F-VB-CG)
 - SD card slot
 
 ## Install firmware
 
->**Note: If you are running a firmware version lower than < v2.0.0, you must do
->a one-time-only SD card upgrade to version v2.0.0.**
+> **Note: If you are running a firmware version lower than < v2.0.0, you must do
+> a one-time-only SD card upgrade to version v2.0.0.**
 >
->**Note 2: Prior to v2.0.0 a third-party tool 'PhoenixSuit' was required to
->flash firmware. This tool is obsoleted, and only the methods described on our
->website can be used to flash your board.**
+> **Note 2: Prior to v2.0.0 a third-party tool 'PhoenixSuit' was required to
+> flash firmware. This tool is obsoleted, and only the methods described on our
+> website can be used to flash your board.**
 
 The latest firmware images can be found on the [release page](https://github.com/turing-machines/BMC-firmware/releases).
 
@@ -69,15 +72,27 @@ On our
 [website](https://docs.turingpi.com/docs/turing-pi2-bmc-firmware-upgrade)
 you can find more information on installing firmware.
 
+## Default login, SSH, and firewall
+
+SSH and the web UI use the **`turing`** operator account (password **`turing`**,
+`sudo` to root). **`PermitRootLogin no`**. Serial console and the USB-OTG getty
+still log in as **root** (password **`turing`**) for recovery.
+
+iptables is **default-deny** on INPUT/FORWARD (`S35iptables`). IPv4 allows loopback,
+established flows, **TCP 22** (SSH), **TCP 443** (bmcd / UI), and **UDP 5353**
+(mDNS). IPv6 allows loopback and established only. Outbound is unrestricted.
+
+Userland is linked with **full RELRO**. **`bmcd` still runs as root** (no AppArmor).
+
 ## Build / Development
 
 If you want to build the BMC firmware yourself, there is some preparation
 needed, which depends on your working environment.
 
-The build process uses [Buildroot](https://buildroot.org/) for further documentation
-can be found [here](https://buildroot.org/downloads/manual/manual.html).
-Buildroot is not included in this repository and needs to be downloaded once
-before building.
+The build process uses [Buildroot](https://buildroot.org/) **2026.08** (see
+[`scripts/configure.sh`](scripts/configure.sh)); further documentation can be found
+[here](https://buildroot.org/downloads/manual/manual.html). Buildroot is not
+included in this repository and needs to be downloaded once before building.
 
 This repository uses a `devcontainer` for a uniform development environment. The
 devcontainer is available in a linux and darwin version. Windows users are recommended
@@ -175,6 +190,31 @@ the scripts directory.
 | configure.sh | Configure the repository with the buildroot, this script must be run everytime is buildroot is updated or on a clean repository |
 | init.sh      | This is the devcontainer initialization script, only used by the devcontainer on startup                                        |
 | sync.sh      | Only for macOS / darwin, synchronize changes to the host                                                                        |
+
+Build-time image checks live under [`tp2bmc/scripts/`](tp2bmc/scripts/) and
+[`tp2bmc/board/tp2bmc/uboot_build_dir.sh`](tp2bmc/board/tp2bmc/uboot_build_dir.sh).
+[`post_image.sh`](tp2bmc/board/tp2bmc/post_image.sh) runs them at the end of a
+firmware build:
+
+| Script | When |
+| ------ | ---- |
+| [`uboot_build_dir.sh`](tp2bmc/board/tp2bmc/uboot_build_dir.sh) | Sourced by `post_image.sh` / `post_build.sh` to resolve `output/build/uboot-<version>` |
+| [`validate_spi_boot_stack.sh`](tp2bmc/scripts/validate_spi_boot_stack.sh) | After U-Boot is built: `OF_EMBED`, legacy mkimage @ `0x8000`, in-tree patches present |
+| [`check_spi_boot_image.sh`](tp2bmc/scripts/check_spi_boot_image.sh) | Called by `validate_spi_boot_stack.sh` — inspects `u-boot-sunxi-with-spl.bin` SPI layout |
+| [`check_sdcard_install_image.sh`](tp2bmc/scripts/check_sdcard_install_image.sh) | After the SD image is generated — partition 2 EROFS matches `rootfs.erofs` |
+| [`check_nand_expectations.sh`](tp2bmc/scripts/check_nand_expectations.sh) | Not run by the build. Prints the U-Boot `ubi info` / `ubi read` checks to use after an SD install |
+
+U-Boot SPI layout (legacy mkimage @ `0x8000`, `OF_EMBED`, patches present) is
+checked by [`validate_spi_boot_stack.sh`](tp2bmc/scripts/validate_spi_boot_stack.sh).
+In the DevContainer, after a build:
+
+```shell
+BUILD_DIR=/work/buildroot/output/build \
+BINARIES_DIR=/work/buildroot/output/images \
+./tp2bmc/scripts/validate_spi_boot_stack.sh
+```
+
+Do not set `UBOOT_DIR` to `../turing-bmc-bootloader` inside the container.
 
 > **NOTE**
 >
@@ -348,7 +388,562 @@ The build script also provides additional arguments.
 git build --help
 ```
 
-The .gitignore allows for two workign directories while developing.
+The .gitignore allows a `wip` working directory while developing.
 
-- tmp
-- wip
+### BMC hardware overview
+
+Device trees live under [`tp2bmc/board/tp2bmc/`](tp2bmc/board/tp2bmc/): common
+[`sun8i-t113s-turing-pi2.dtsi`](tp2bmc/board/tp2bmc/sun8i-t113s-turing-pi2.dtsi);
+board variants
+[`sun8i-t113s-turing-pi2-v2.4.dts`](tp2bmc/board/tp2bmc/sun8i-t113s-turing-pi2-v2.4.dts),
+[`sun8i-t113s-turing-pi2-v2.5.dts`](tp2bmc/board/tp2bmc/sun8i-t113s-turing-pi2-v2.5.dts),
+[`sun8i-t113s-turing-pi2-v2.5.1.dts`](tp2bmc/board/tp2bmc/sun8i-t113s-turing-pi2-v2.5.1.dts),
+[`sun8i-t113s-turing-pi2-v2.5.2.dts`](tp2bmc/board/tp2bmc/sun8i-t113s-turing-pi2-v2.5.2.dts).
+The FIT selects **`config-v2.5.2`** and the **v2.5.2** DTB when EEPROM `hw_version` says so ([`turing-pi2.its`](tp2bmc/board/tp2bmc/turing-pi2.its)).
+
+#### Block diagram
+
+```mermaid
+flowchart TB
+  subgraph soc[T113-S3]
+    GMAC["GMAC RMII PE0-PE9"]
+    SPI0["SPI0 NAND PC2-PC7"]
+    OTG["USB gadget usb_otg / usbphy"]
+    EHCI["USB host EHCI1 + hub"]
+    UART["UART1 PG6/7, UART2 PD1/2, UART3 PB6/7, UART4 PB2/3, UART5 PB4/5"]
+    MMC["mmc0 SD, CD PF6"]
+    FP["Front panel PG8-11, key1 PG15"]
+    NGPIO["turing,pi2-nodes + gpio-latch v2.5"]
+    PWM["pwm-fan PWM5 PD21 v2.5"]
+  end
+  subgraph i2c[i2c2 TWI PE12 SCL PE13 SDA]
+    EEP["24LC02 0x50 NVMEM MAC"]
+    ARB["tpi-i2c-smi-arbiter"]
+    RTL["RTL8370MB GPIO SMI / DSA"]
+    RTC["PCF8563 0x51 placement varies"]
+    EMC["EMC2301 0x2f optional v2.4 DT"]
+  end
+  PHY["RTL8201F RMII PHY"]
+  subgraph ports[RTL8370MB DSA labels]
+    P1["node1"]
+    P2["node2"]
+    P3["node3"]
+    P4["node4"]
+    PC["cpu → GMAC"]
+    G0["ge0"]
+    G1["ge1"]
+  end
+  NAND[("SPI NAND")]
+  MOD["Compute modules: Ethernet + USB"]
+  GMAC --> PHY
+  PHY --> RTL
+  soc --> i2c
+  SPI0 --> NAND
+  EHCI --> MOD
+  RTL --> P1
+  RTL --> P2
+  RTL --> P3
+  RTL --> P4
+  RTL --> PC
+  RTL --> G0
+  RTL --> G1
+  P1 --> MOD
+  P2 --> MOD
+  P3 --> MOD
+  P4 --> MOD
+```
+
+#### RTL8370MB DSA switch ports
+
+Port labels come from `ethernet_switch` / `ethernet-ports` in
+[`sun8i-t113s-turing-pi2.dtsi`](tp2bmc/board/tp2bmc/sun8i-t113s-turing-pi2.dtsi):
+
+| Label                 | Connection                                                      |
+| --------------------- | --------------------------------------------------------------- |
+| **node1** … **node4** | Internal PHY toward each compute slot’s **Ethernet**            |
+| **cpu**               | **DSA CPU port** to the SoC **`&emac`** (via **RTL8201F** RMII) |
+| **ge0**, **ge1**      | **External RJ45** front-panel **Gigabit** ports                 |
+
+#### Advanced switching (shell cookbook)
+
+The shipped image attaches **node1…node4**, **ge0**, and **ge1** to **`br0`**
+([`overlay/etc/network/interfaces`](tp2bmc/board/tp2bmc/overlay/etc/network/interfaces)).
+The kernel enables **bridge VLAN filtering**, **802.1Q**, and **bonding**
+(`CONFIG_BONDING=y`); the local `rtl8365mb` backport offloads bridge membership,
+FDB entries, VLAN/PVID tables, bridge port flags, and **hardware LAG/trunk**
+(`ge0`+`ge1` via `port_lag_*`) to the switch ASIC.
+
+**Important — CPU port vs node traffic**
+
+| Path | Hardware | Typical speed |
+| ---- | -------- | ------------- |
+| **node\* ↔ node\*** on `br0` | Switch ASIC | ~1 Gbit/s |
+| **BMC-originated** traffic (`eth0` / RMII) | CPU port | **≤ ~100 Mbit/s** |
+| **node\* → WAN** flat `br0` (`ge0`/`ge1` on bridge) | Switch ASIC | ~1 Gbit/s per flow |
+| **node\* → WAN** bond profile (`bond0` on `br0`) | Switch ASIC **after patches `net-dsa/0003`–`0005`** | limited by the WAN router (see note) |
+
+Earlier bond-only images programmed LACP + HW LAG but left node→WAN traffic
+**hairpinning through the CPU port** (~94 Mbit/s, with the transfer size
+appearing in *both* directions on the conduit). Patches
+[`0003`](tp2bmc/patches/linux/net-dsa/0003-net-dsa-rtl8365mb-hardware-lag-trunk-offload.patch)–[`0005`](tp2bmc/patches/linux/net-dsa/0005-net-dsa-rtl8365mb-lag-phy-autoneg-kick.patch)
+trap LACP to the CPU, stop VLAN filtering being forced onto the trunk members,
+and leave `offload_fwd_mark` alone so the bridge does not re-forward in
+software. **Reflash the kernel after pulling these patches** and re-run the
+uplink validation below.
+
+> **Measuring this path.** Node→WAN over the bond is confirmed ASIC-switched
+> (the conduit stays quiet under load), but node→WAN throughput measures
+> whatever the upstream router can route, not what the switch can forward. On
+> the lab OPNsense appliance that is 207–249 Mbit/s, and it does not change
+> when one of the two trunk cables is pulled. Benchmark **node→node** instead
+> to see ASIC line rate.
+
+LACP control frames stay in the kernel bonding driver; data frames hash across
+`ge0`+`ge1` in hardware once the trunk + bridge fixup is active.
+
+Tools: **`ip`** and **`bridge`** from **iproute2** (`BR2_PACKAGE_IPROUTE2`). Not
+available through the Web UI — lab / SSH use only. Changing bridges or bonds **will
+disrupt** the default `br0` uplink until you restore [`interfaces`](tp2bmc/board/tp2bmc/overlay/etc/network/interfaces) or reboot.
+
+**Inspect topology**
+
+```sh
+ip -br link
+bridge link
+bridge vlan show dev br0
+# VLAN offload lab only (not the shipped default):
+ip link set br0 type bridge vlan_filtering 1
+cat /sys/class/net/br0/bridge/vlan_filtering   # expect 1
+```
+
+#### `tp2-net-config` — single-command network mode switching
+
+All four network modes are controlled by **one config file**
+[`/etc/tp2/network.conf`](tp2bmc/board/tp2bmc/overlay/etc/tp2/network.conf.example)
+and **one command**:
+
+```sh
+cp /etc/tp2/network.conf.example /etc/tp2/network.conf
+vi /etc/tp2/network.conf    # edit to desired mode
+tp2-net-config apply         # bond + VLAN + IP + persist for reboot
+tp2-net-config show          # verify
+tp2-net-config reset         # revert to flat br0 + DHCP
+```
+
+##### Mode 1 — Flat (factory default)
+
+```ini
+[bond]
+enabled=0
+[bridge]
+ip=dhcp
+```
+
+All six switch ports (`node1`–`node4` + `ge0` + `ge1`) are direct `br0`
+members. Single GE cable, no bond. DHCP on `br0`.
+
+| OPNsense side | BMC side |
+| ------------- | -------- |
+| LAN on a single `igbN` port | `tp2-net-config apply` or `tp2-net-config reset` |
+
+##### Mode 2 — LACP bond (DHCP or static)
+
+```ini
+[bond]
+enabled=1
+mode=802.3ad
+[bridge]
+ip=dhcp
+# static alternative:
+# ip=192.168.1.50/24
+# gateway=192.168.1.1
+# dns=192.168.1.1
+```
+
+`ge0`+`ge1` bonded into `bond0` (802.3ad, HW LAG offload). `bond0` +
+`node1`–`node4` join `br0`. Requires an **LACP peer** upstream. Kernel patches
+[`net-dsa/0003`](tp2bmc/patches/linux/net-dsa/0003-net-dsa-rtl8365mb-hardware-lag-trunk-offload.patch)
+and [`0004`](tp2bmc/patches/linux/net-dsa/0004-net-dsa-rtl8365mb-lag-bridge-uplink-vlan-sync.patch)
+enable HW LAG offload, LACP delivery to the CPU, and node→WAN ASIC forwarding.
+
+| OPNsense side | BMC side |
+| ------------- | -------- |
+| LAGG (LACP) on `igb0` + `igb2`, LAN assigned to `lagg0` | `tp2-net-config apply` |
+
+##### Mode 3 — VLAN per-node, flat uplink
+
+```ini
+[bond]
+enabled=0
+[port.node1]
+mode=access
+vlan=10
+[port.node2]
+mode=access
+vlan=20
+[port.ge0]
+mode=trunk
+native=1
+vlans=10,20
+```
+
+Bridge VLAN filtering auto-enabled. Each `[port.*]` section sets access (single
+untagged VLAN) or trunk (native + tagged VLANs). Upstream must trunk the same
+VLANs.
+
+| OPNsense side | BMC side |
+| ------------- | -------- |
+| VLANs 10, 20 on `igbN`, assign interfaces per VLAN | `tp2-net-config apply` |
+
+##### Mode 4 — VLAN per-node, LACP uplink
+
+```ini
+[bond]
+enabled=1
+mode=802.3ad
+[port.node1]
+mode=access
+vlan=10
+[port.node2]
+mode=access
+vlan=20
+[port.bond0]
+mode=trunk
+native=1
+vlans=10,20
+```
+
+LACP bond + per-port VLAN isolation. Use `[port.bond0]` for the uplink trunk
+(not `ge0`/`ge1` individually). After apply, **`br0` itself** keeps the uplink
+trunk’s **native VLAN** (default **1**) as **pvid untagged**, so BMC host
+traffic stays on VLAN 1.
+
+| OPNsense side | BMC side |
+| ------------- | -------- |
+| LAGG (LACP) on `igb0`+`igb2`, VLANs on `lagg0`, interfaces per VLAN | `tp2-net-config apply` |
+
+##### What `tp2-net-config apply` does
+
+1. Tears down existing `br0` and bond
+2. Creates bond (if `enabled=1`), enslaves `ge0`+`ge1`
+3. Attaches ports to `br0`, enables VLAN filtering if any `[port.*]` sections
+4. Waits for LACP convergence + runs kernel LAG bridge fixup refresh
+5. Configures IP addressing (DHCP / static / none)
+6. Writes matching `interfaces.d/` profile for reboot persistence
+
+**VLAN + bond caveat:** VLAN/PVID offload applies to DSA ports (`node*`, and
+`ge0`/`ge1` when direct `br0` members). With `bond0` on `br0`, `ge0`/`ge1` are
+bond slaves — not bridge members in ASIC VLAN tables. Node-side access VLANs
+offload in HW, but **egress VLAN tagging across bond0+br0 is not fully
+validated** — prefer flat L2 or keep VLANs on node ports only until extended.
+
+##### Verification after `tp2-net-config apply` (LACP mode)
+
+```sh
+tp2-net-config show                              # full state dump
+cat /proc/net/bonding/bond0                      # 802.3ad, both slaves active
+bridge link                                      # node* + bond0 on br0
+dmesg | grep 'LAG bridge uplink fixup'           # HW offload active
+# On a powered node: arping -c 3 -I eth0 <gateway>  — expect replies
+sh /usr/share/tp2/uplink-hairpin-test.sh <gateway>  # eth0 counters stay flat
+sh /usr/share/tp2/hw-validate.sh                  # onboard checks; optional --mac
+```
+
+Revert to flat: `tp2-net-config reset` (removes bond, restores `00-br0-flat`,
+starts DHCP).
+
+**Internal plumbing:**
+[`tp2-bond-up.sh`](tp2bmc/board/tp2bmc/overlay/etc/network/tp2-bond-up.sh) creates bond0 via explicit `ip link add` (ifupdown-ng `use bond` is unreliable on this platform).
+[`tp2-bond-wait-lacp.sh`](tp2bmc/board/tp2bmc/overlay/etc/network/tp2-bond-wait-lacp.sh) waits for partner MAC on `br0` pre-up.
+[`tp2-lag-bridge-fixup-refresh.sh`](tp2bmc/board/tp2bmc/overlay/etc/network/tp2-lag-bridge-fixup-refresh.sh) re-triggers the kernel LAG bridge isolation fixup.
+[`S41bond-br0-dhcp`](tp2bmc/board/tp2bmc/overlay/etc/init.d/S41bond-br0-dhcp) blocks boot until `br0` has a DHCP lease if udhcpc forked early.
+
+#### OPNsense LACP peer (igb0 + igb2 → LAN)
+
+When the upstream firewall is **OPNsense**, create a **LAGG** (FreeBSD `lagg(4)`) in **LACP** mode and assign **LAN** to it. Cable **ge0** → OPNsense **igb0**, **ge1** → **igb2** (same switch domain or direct).
+
+**1. Create LAGG**
+
+| Field | Value |
+| ----- | ----- |
+| Interfaces → Other Types → **LAGG** → Add | |
+| Protocol | **LACP (IEEE 802.3ad)** |
+| Members | **igb0**, **igb2** |
+| LACP timeout | **Fast** (matches BMC `lacp_rate fast`) |
+| Description | e.g. `LAN-LACP-TP2` |
+
+**2. Reassign LAN**
+
+| Step | Action |
+| ---- | ------ |
+| Interfaces → **Assignments** | Set **LAN** to **LAGG0** (not igb0 alone) |
+| Remove LAN from igb0/igb2 | Those ports must be LAGG members only |
+
+Keep the same LAN IP/subnet/DHCP pool the BMC expects (or expand DHCP for `br0`).
+
+**3. Interface settings on LAGG0 (LAN)**
+
+- **Enable** the interface
+- **IPv4**: static or DHCP server for BMC `br0` (same subnet as before)
+- **Block private networks** / bogons: adjust if BMC is on RFC1918 LAN
+
+**4. Verify LAGG**
+
+Shell on OPNsense (`ifconfig`):
+
+```sh
+ifconfig lagg0
+# laggproto lacp, laggport igb0 laggport igb2, status active on both
+
+sysctl net.link.lagg.lacp.debug   # optional troubleshooting
+```
+
+Web UI: **Interfaces → LAGG →** both ports should show **ACTIVE** once BMC bond is up and cabled.
+
+**5. Match with BMC**
+
+| Side | Setting |
+| ---- | ------- |
+| BMC `bond0` | `802.3ad`, `xmit_hash_policy layer2+3`, `lacp_rate fast` |
+| OPNsense `lagg0` | `lacp`, fast timeout |
+| Cabling | ge0 ↔ igb0, ge1 ↔ igb2 (consistent partner ports) |
+
+On BMC after `ifup -f bond0`:
+
+```sh
+cat /proc/net/bonding/bond0
+# Partner MAC should not be 00:00:00:00:00:00
+# Both ge0 and ge1 listed as slave interfaces
+```
+
+**6. Optional VLANs later**
+
+If you add VLAN 10/20/30 on node ports, create matching VLANs on OPNsense (**Interfaces → VLANs** on `lagg0`, or VLAN parent = `lagg0`) and trunk them on the LAGG — only needed when moving beyond flat-L2 bond testing.
+
+**Packet capture** — use **`tcpdump -i br0`**, **`tcpdump -i ge0`**, or
+**`tcpdump -i nodeN`**, not the abstract **`dsa`** master (Buildroot **libpcap 1.10.6**
+does not support the **`rtl8_4`** DSA tag on the CPU conduit).
+
+Kernel/DSA patch series live under [`tp2bmc/patches/linux/`](tp2bmc/patches/linux/); maintainer-only upgrade notes are **not** in the public tree.
+
+#### I²C / SMI (`&i2c2` on PE12 / PE13)
+
+**`&i2c2`** (hardware TWI on **PE12 / PE13**) carries the **24LC02** at **0x50** and
+(per DT variant) **PCF8563** at **0x51**. The **RTL8370MB** switch is managed via
+**GPIO SMI bitbang** on the same pins (**PE12** = SCK, **PE13** = SDA), with
+**`tpi-i2c-smi-arbiter`** muxing between HW I²C (EEPROM / RTC) and SMI traffic.
+Kernel patches live under [`tp2bmc/patches/linux/tp2/tpi-smi-mux/`](tp2bmc/patches/linux/tp2/tpi-smi-mux/).
+
+**Fan control**
+
+- **v2.5.x** DT: **`pwm-fan`** on **PWM5 / PD21** ([`sun8i-t113s-turing-pi2-v2.5.dts`](tp2bmc/board/tp2bmc/sun8i-t113s-turing-pi2-v2.5.dts)); no EMC2301 node.
+- **v2.4** DT only: optional **EMC2301 @ 0x2f** on `&i2c2` for user-soldered fan
+  IC ([`sun8i-t113s-turing-pi2-v2.4.dts`](tp2bmc/board/tp2bmc/sun8i-t113s-turing-pi2-v2.4.dts)); no `pwm-fan` node.
+
+**RTC**
+
+- **v2.5.0**: **PCF8563 @ 0x51** on **`i2c0` PG12 / PG13**.
+- **v2.5.1+**: **`i2c0` disabled** for RTC; **PCF8563 @ 0x51** on **`&i2c2`**.
+
+**Node control / USB**
+
+GPIO tables document the **`turing,pi2-nodes`** controller in each DTB
+([`sun8i-t113s-turing-pi2-v2.4.dts`](tp2bmc/board/tp2bmc/sun8i-t113s-turing-pi2-v2.4.dts),
+[`sun8i-t113s-turing-pi2-v2.5.dts`](tp2bmc/board/tp2bmc/sun8i-t113s-turing-pi2-v2.5.dts)).
+**v2.5.x** adds **`gpio-latch`**: clock **PD20**, latched outputs **PD3–PD11**
+(index **0** = **PD3** … index **8** = **PD11**). `gpios = <&gpio_latch N …>`
+refers to **PD3+N**.
+
+**Other pins (`dtsi`)**
+
+- **Front panel**: LEDs **PG8 / PG9**, keys **PG10–PG11**, board key **PG15**.
+- **SD card**: **mmc0**, card-detect **PF6**.
+- **BMC console**: **`serial0` → `&uart3`** (UART table below).
+- **PHY reset**: **PE10** on `&mdio` `rtl8201f`.
+- **Switch reset**: **PG13** (v2.4) vs **PG3** (v2.5.x) on `&ethernet_switch`.
+  U-Boot only **releases** that line. It does not program port isolation; Linux
+  DSA owns the switch after boot. Until then the ASIC default-forwards (enough
+  for recovery DHCP; the two RJ45s may be bridged).
+- **RMII**: **PE0–PE9** `emac` — see **`rmii_pe_pins`** in the same
+  **`sun8i-t113s.dtsi`** as the UART mux (same kernel tree as the **Versions defined** table below).
+
+**SD card image layout** (`tp2-bmc-firmware-sdcard.img` from [`genimage.cfg`](tp2bmc/board/tp2bmc/genimage.cfg)):
+
+| Partition                     | Role                                                                      |
+| ----------------------------- | ------------------------------------------------------------------------- |
+| **boot** (FAT)                | Installer / recovery payload (also mounted at `/mnt/sdcard` when present) |
+| **rootfs**                    | EROFS in a **45880K** partition (370 LEBs of NAND — see `genimage.cfg`)   |
+| **bmc-logs** (ext4, optional) | Extra **128 MiB** partition for persistent `/var/log` retention           |
+
+The BMC runs **without** an SD card. When a card is present, [`S05sd-logs`](tp2bmc/board/tp2bmc/overlay/etc/init.d/S05sd-logs) mounts `PARTLABEL=bmc-logs` and bind-mounts `…/persisted` onto `/var/log` if the partition exists. Disable that behaviour with an empty file **`/etc/bmc/disable-sd-logs`** (see [`disable-sd-logs.example`](tp2bmc/board/tp2bmc/overlay/etc/bmc/disable-sd-logs.example)). Runtime **`overlay`** partitions created by [`mount_overlay`](tp2bmc/board/tp2bmc/overlay/sbin/mount_overlay) on SD-root installs are separate from **bmc-logs**.
+
+##### UART pins (`serialN` aliases)
+
+Mux lives in **`arch/arm/boot/dts/allwinner/sun8i-t113s.dtsi`** for the **pinned
+kernel** ([Versions defined in this repository](#versions-defined-in-this-repository)).
+Use a checkout under **`output/build/linux-<version>/`** and grep
+for `uart*_…_pins`. Enabled in
+[`sun8i-t113s-turing-pi2.dtsi`](tp2bmc/board/tp2bmc/sun8i-t113s-turing-pi2.dtsi).
+
+| Alias     | Controller | Pinctrl node                   | Pins (TX, RX)    |
+| --------- | ---------- | ------------------------------ | ---------------- |
+| `serial0` | **UART3**  | `uart3_pb_pins`                | **PB6**, **PB7** |
+| `serial1` | **UART2**  | `uart2_pd_pins` (board `dtsi`) | **PD1**, **PD2** |
+| `serial2` | **UART1**  | `uart1_pg6_pins`               | **PG6**, **PG7** |
+| `serial3` | **UART4**  | `uart4_pb_pins` (board `dtsi`) | **PB2**, **PB3** |
+| `serial4` | **UART5**  | `uart5_pb_pins` (board `dtsi`) | **PB4**, **PB5** |
+
+`serial0` is **115200 8N1** (`stdout-path`). Pinctrl lists **TX then RX**.
+
+**Node serial helpers:** [`overlay/usr/bin/node1` … `node4`](tp2bmc/board/tp2bmc/overlay/usr/bin/) call [`node-console`](tp2bmc/board/tp2bmc/overlay/usr/bin/node-console), which runs **GNU `screen`** on `ttyS1`–`ttyS4` at **115200**. A second `nodeN` **joins the existing session** (`screen -x`, or `-r` if it was detached) instead of opening another one on the same UART. Exit with **Ctrl-A**, then **\\** (quit) or **k** (kill); **Ctrl-A** **d** detaches. **BusyBox `microcom`** is not used for node consoles: without **`-X`** output is garbled on binary-heavy RK UART traffic; with **`-X`** there is no clean exit (Ctrl-X is disabled). If **`bmcd`** holds the UART, stop it before attaching.
+
+**Netconsole (#180):** Linux ships **`CONFIG_NETCONSOLE`** with **dynamic** targets — the collector address is **not** fixed at compile time.
+
+1. On a host: `nc -u -l -p 6666` (or your chosen UDP port).
+2. On the BMC (example collector `192.168.1.100`, port `6666`, egress `br0`):
+
+```sh
+modprobe configfs 2>/dev/null || true
+mount -t configfs none /sys/kernel/config 2>/dev/null || true
+mkdir -p /sys/kernel/config/netconsole/nd0
+echo 192.168.1.100 > /sys/kernel/config/netconsole/nd0/remote_ip
+echo 6666 > /sys/kernel/config/netconsole/nd0/remote_port
+echo br0 > /sys/kernel/config/netconsole/nd0/dev_name
+echo 1 > /sys/kernel/config/netconsole/nd0/enabled
+```
+
+3. **Persistence across reboot** (optional): save the four values above in e.g. `/etc/bmc/netconsole.conf` and source them from a small init hook, or add a one-shot **`netconsole=…`** fragment on the kernel cmdline in U-Boot/FIT if you prefer not to use configfs. Targets are cleared on reboot unless you recreate them.
+
+Kernel reference: `Documentation/networking/netconsole.rst` in the pinned kernel tree.
+
+**Remote syslog (BusyBox):** The image uses **BusyBox `syslogd`** with **`FEATURE_REMOTE_LOG`** ([`busybox.fragment`](tp2bmc/board/tp2bmc/busybox.fragment)) — same capability as upstream’s [`FEATURE_REMOTE_LOG`](https://github.com/vda-linux/busybox_mirror/blob/244c0a01eece537e9d7e8318a5c320a836cc604b/sysklogd/syslogd.c#L38) (`-R HOST[:PORT]`, `-L` for local + network). This replaces a separate **rsyslog** package (~600 KiB+) for basic UDP forwarding. Optional collector address: copy [`syslog-remote.example`](tp2bmc/board/tp2bmc/overlay/etc/bmc/syslog-remote.example) to `/etc/bmc/syslog-remote`, set `SYSLOG_REMOTE=collector:514`, then `/etc/init.d/S01syslogd restart`. On the collector: `nc -u -l -p 514` or any syslog server. **Note:** BusyBox’s restricted `/etc/syslog.conf` only routes to **local files**; remote targets use **`-R`**, not `@@` rules like full rsyslog. For TLS, structured RFC 5424 relays, or complex filters, rsyslog/syslog-ng would still be a separate add.
+
+##### Node GPIO lines (`gpio-line-names`)
+
+**PCB v2.4**
+
+| GPIO name          | Pin      | Notes       |
+| ------------------ | -------- | ----------- |
+| `node1-en`         | **PD11** | active low  |
+| `node1-rst`        | **PD0**  | active low  |
+| `node1-usbotg-dev` | **PD19** | active high |
+| `node1-rpiboot`    | **PD15** | active low  |
+| `node2-en`         | **PD10** | active low  |
+| `node2-rst`        | **PD20** | active low  |
+| `node2-usbotg-dev` | **PD18** | active high |
+| `node2-rpiboot`    | **PD14** | active low  |
+| `node3-en`         | **PD9**  | active low  |
+| `node3-rst`        | **PD21** | active low  |
+| `node3-usbotg-dev` | **PD17** | active high |
+| `node3-rpiboot`    | **PD12** | active low  |
+| `node4-en`         | **PD8**  | active low  |
+| `node4-rst`        | **PD22** | active low  |
+| `node4-usbotg-dev` | **PD16** | active high |
+| `node4-rpiboot`    | **PD13** | active low  |
+
+**PCB v2.5.x** — no `node*-rst`; only **`node1-usbotg-dev`** besides **en** /
+**rpiboot**.
+
+| GPIO name          | Pin      | Notes                                |
+| ------------------ | -------- | ------------------------------------ |
+| `node1-en`         | **PD11** | `gpio_latch` index **8**, active low |
+| `node1-usbotg-dev` | **PD19** | direct SoC                           |
+| `node1-rpiboot`    | **PD15** | direct SoC                           |
+| `node2-en`         | **PD10** | latch index **7**                    |
+| `node2-rpiboot`    | **PD14** | direct SoC                           |
+| `node3-en`         | **PD9**  | latch index **6**                    |
+| `node3-rpiboot`    | **PD12** | direct SoC                           |
+| `node4-en`         | **PD8**  | latch index **5**                    |
+| `node4-rpiboot`    | **PD13** | direct SoC                           |
+
+**USB (v2.5+ DT):** **`&ehci1`** → `hub@1` → **`node1@1` … `node4@4`**; sysfs paths for MSD are typically **`…/usb2/2-1/2-1.N/…`** on **EHCI** (and may be **`…/usb1/1-1/1-1.N/…`** on other roots) — **`mdev-tpi-msd-symlink`** accepts **both** patterns for **`/dev/disk/by-tpi/nodeN`**.
+
+##### Node slot 5 V enables (regulator `gpio`)
+
+| Function | v2.4    | v2.5.0                | v2.5.1+               |
+| -------- | ------- | --------------------- | --------------------- |
+| ATX 12 V | **PD3** | latch **0** → **PD3** | same                  |
+| Slot 1   | **PD7** | latch **4** → **PD7** | same                  |
+| Slot 2   | **PD6** | latch **2** → **PD5** | latch **3** → **PD6** |
+| Slot 3   | **PD5** | latch **3** → **PD6** | latch **2** → **PD5** |
+| Slot 4   | **PD4** | latch **1** → **PD4** | same                  |
+
+##### USB hub / BMC OTG supply (DT)
+
+| Topic          | v2.4                                           | v2.5 / v2.5.1+                                                                                      |
+| -------------- | ---------------------------------------------- | --------------------------------------------------------------------------------------------------- |
+| Hub port VBUS  | **PG4** `reg_usb_port_vbus`                    | not in board DTS                                                                                    |
+| Gadget VBUS    | **PG12** → `usb0_vbus-supply` on **`&usbphy`** | no `usb0_vbus-supply` in shared `dtsi`                                                              |
+| **`&usb_otg`** | **otg** + role switch                          | **`peripheral`** ([`sun8i-t113s-turing-pi2.dtsi`](tp2bmc/board/tp2bmc/sun8i-t113s-turing-pi2.dtsi)) |
+
+**EHCI** to modules is separate from **`&usb_otg` / `usbphy`**.
+
+##### Board EEPROM (24LC02 @ 0x50)
+
+Read-only in Linux. Layout / burn: [`tp2bmc/board/tp2bmc/uboot.env`](tp2bmc/board/tp2bmc/uboot.env).
+
+| Offset    | Length | Content                                                                                    |
+| --------- | ------ | ------------------------------------------------------------------------------------------ |
+| 0x00–0x01 | 2 B    | Erased `0xFFFF` before re-burn                                                             |
+| 0x02–0x05 | 4 B    | CRC32 over **0x06–0x1F**                                                                   |
+| 0x06–0x07 | 2 B    | Header magic                                                                               |
+| 0x08–0x09 | 2 B    | **`eeprom_ver`** (e.g. `0x1100` v2.4.0, `0x1140` v2.5.0, `0x1141` v2.5.1, `0x1142` v2.5.2) |
+| 0x2C–0x31 | 6 B    | **MAC** → `dwmac-sun8i` NVMEM                                                              |
+| remainder | —      | reserved                                                                                   |
+
+U-Boot picks the **FIT config** from **`eeprom_ver`** ([`turing-pi2.its`](tp2bmc/board/tp2bmc/turing-pi2.its)); corrupt EEPROM can load the wrong DTB.
+
+The EEPROM MAC is **authoritative and read-only**. U-Boot programs it onto the
+EMAC (`local-mac-address` / `ethaddr`); Linux copies it onto **`br0` before
+DHCP**. The SoC **SID** is used only when the EEPROM has no valid unicast MAC.
+This firmware never writes the EEPROM.
+
+### BMC rootfs software inventory
+
+The BMC image is a **Buildroot** rootfs plus this repo’s **`BR2_EXTERNAL`** (`tp2bmc/`). There are two useful views of “what is installed”:
+
+1. **Versions pinned in _this_ repository** — kernel, bootloader, and Turing Pi–owned packages. These are the values you can audit without running a build.
+2. **Everything Buildroot actually compiled into the rootfs** — hundreds of packages and dependencies. The authoritative names and upstream versions appear as **directory names** under Buildroot’s `output/build/` (convention: `<name>-<version>`).
+
+#### Versions defined in this repository
+
+**Platform baseline:** production images before the **2026.02** upgrade used **Buildroot
+2024.05.1** and **Linux 6.8.12**. The current branch targets **Buildroot 2026.08** and
+**Linux 6.18.50** ([#235](https://github.com/turing-machines/BMC-Firmware/issues/235)
+firmware-complete on this line).
+
+| Component                              | Where the version is pinned                                                                                                                                            |
+| -------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| **Buildroot**                          | **`2026.08`** in [`scripts/configure.sh`](scripts/configure.sh) (`BUILDROOT_VER`)                                                                                       |
+| **Linux kernel**                       | **`6.18.50`** in [`tp2bmc/configs/tp2bmc_defconfig`](tp2bmc/configs/tp2bmc_defconfig) (`BR2_LINUX_KERNEL_CUSTOM_VERSION_VALUE`)                                        |
+| **U-Boot**                             | **2026.07** in [`tp2bmc/configs/tp2bmc_defconfig`](tp2bmc/configs/tp2bmc_defconfig) (`BR2_TARGET_UBOOT_CUSTOM_VERSION_VALUE`) plus in-tree patches under [`tp2bmc/patches/uboot/`](tp2bmc/patches/uboot/). On **v2.5+** boards with a valid EEPROM, U-Boot expands the `ubi` window to **255 MiB** so the installer layout attaches; v2.3/v2.4 keep **127 MiB**. |
+| **bmcd**                               | `v2.3.4` in [`tp2bmc/package/bmcd/bmcd.mk`](tp2bmc/package/bmcd/bmcd.mk) (`BMCD_VERSION`)                                                                              |
+| **BMC-UI** (static Web UI)             | `v3.3.6` in [`tp2bmc/package/bmc-ui/bmc-ui.mk`](tp2bmc/package/bmc-ui/bmc-ui.mk) (`BMC_UI_VERSION`)                                                                    |
+| **BMC-Installer** (recovery / SD init) | Git `eef33d0f72728831650ab4d04b5225993f002b31` in [`tp2bmc/package/bmc_installer/bmc_installer.mk`](tp2bmc/package/bmc_installer/bmc_installer.mk)                     |
+| **`tpi` CLI**                          | Git `f9a5d58f42428f861693bdeac5acc0171872d807` in [`tp2bmc/package/tpi/tpi.mk`](tp2bmc/package/tpi/tpi.mk) (`TPI_VERSION`)                                             |
+| **Raspberry Pi `usbboot` helper**      | `2021.07.01` in [`tp2bmc/package/raspberrypi-target-usbboot/raspberrypi-target-usbboot.mk`](tp2bmc/package/raspberrypi-target-usbboot/raspberrypi-target-usbboot.mk)   |
+
+Other user-visible tools (**OpenSSH**, **Chrony**, **tcpdump**, **GNU screen**, **htop**, **tree**, **BusyBox** (including **syslogd** with optional remote forwarding and a **tree** applet if GNU tree is dropped), **Avahi**, **mtd-utils**, **e2fsprogs**, **sudo**, **iptables**, etc.) are **not** re-versioned in this repo: their versions come from the **Buildroot release tarball** you unpack with `./scripts/configure.sh`. To see the exact upstream version Buildroot selected for, say, OpenSSH, open `buildroot/package/openssh/openssh.mk` in your Buildroot tree after unpacking, or inspect the matching directory under `output/build/` after a build (e.g. `openssh-9.x`). **strace** and **gdbserver** are not in this image (they were never on [master](https://github.com/turing-machines/BMC-Firmware/blob/master/tp2bmc/configs/tp2bmc_defconfig)).
+
+#### Direct `BR2_PACKAGE_*` selections in `tp2bmc_defconfig`
+
+The file [`tp2bmc/configs/tp2bmc_defconfig`](tp2bmc/configs/tp2bmc_defconfig) lists every **explicit** `BR2_PACKAGE_*=y` option enabled for this product (Avahi, Bash, Chrony, Collectd, OpenSSH, **tcpdump**, **screen**, **htop**, **tree**, **sudo**, **iptables**, `libgpiod2` + tools, `ifupdown-ng`, `i2c-tools`, etc.). **`gpioinfo` / `gpiodetect`** come from **libgpiod 2.x**; **bmcd** talks to `/dev/gpiochip*` through its Rust `gpiod` crate, not the C library. **Python 3** is omitted on this line (~15 MiB under `usr/lib/python3.*` alone; revisit for 256 MiB NAND or a slimmer runtime — [#160](https://github.com/turing-machines/BMC-Firmware/issues/160)). Anything pulled in only as a **dependency** of those packages will also appear under `output/build/` but may not have its own `BR2_PACKAGE_*=y` line.
+
+#### Full listing (every Buildroot build directory)
+
+After a successful `./scripts/build.sh`:
+
+- **On the flashed BMC**, open  
+  **`/usr/share/doc/turing-pi-bmc/buildroot-output-build-dir-listing.txt`**  
+  (generated in [`tp2bmc/board/tp2bmc/post_build.sh`](tp2bmc/board/tp2bmc/post_build.sh)).  
+  That file is a sorted list of all `output/build/*` directory names from the machine that produced the image — the closest thing to an “all installed applications with versions” manifest without enabling extra Buildroot legal-info steps.
+
+- **On the build host**, the same list can be printed with:
+
+```shell
+./scripts/list-bmc-buildroot-package-dirs.sh
+# or, if your Buildroot output lives elsewhere:
+./scripts/list-bmc-buildroot-package-dirs.sh /path/to/buildroot/output
+```
+
+For a **license-oriented** CSV (slower, larger), from your Buildroot directory run `make legal-info` and inspect `output/legal-info/manifest.csv` (standard Buildroot; not wired into this repo by default).

@@ -1,1 +1,2 @@
-exec picocom /dev/ttyS2 -b 115200
+#!/bin/sh
+exec /usr/bin/node-console node2
