@@ -15,7 +15,7 @@ if ! uboot_build="$(tp2bmc_uboot_resolve_dir "${BUILD_DIR}" "${pin}")"; then
 fi
 if [[ -n "${uboot_build}" ]]; then
 	BUILD_DIR="${BUILD_DIR}" UBOOT_DIR="${uboot_build}" \
-		"${TP2BMC_DIR}/scripts/validate_spi_boot_stack.sh" \
+		bash "${TP2BMC_DIR}/scripts/validate_spi_boot_stack.sh" \
 		"${BINARIES_DIR}/u-boot-sunxi-with-spl.bin"
 fi
 
@@ -77,7 +77,7 @@ factory_sdcard
 sdcard_img="${BINARIES_DIR}/tp2-bmc-firmware-sdcard.img"
 rootfs_erofs="${BINARIES_DIR}/rootfs.erofs"
 if [[ -f "${sdcard_img}" ]]; then
-	"${TP2BMC_DIR}/scripts/check_sdcard_install_image.sh" \
+	bash "${TP2BMC_DIR}/scripts/check_sdcard_install_image.sh" \
 		"${sdcard_img}" 2 "${rootfs_erofs}"
 else
 	echo "WARN: missing ${sdcard_img} — SD install image not validated"

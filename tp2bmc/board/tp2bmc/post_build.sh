@@ -127,7 +127,7 @@ install -D -m 0644 "$fit_itb" "$TARGET_DIR/boot/turing-pi2.itb"
 
 # SPI cold-boot: must be legacy mkimage @ 0x8000 (b04fcbf / feat/buildroot2025.11 layout).
 uboot_img="${BINARIES_DIR}/u-boot-sunxi-with-spl.bin"
-if [[ ! -x "${CHECK_SPI_IMG}" ]]; then
+if [[ ! -f "${CHECK_SPI_IMG}" ]]; then
 	echo "error: missing ${CHECK_SPI_IMG}" >&2
 	exit 1
 fi
@@ -135,7 +135,7 @@ if [[ ! -f "${uboot_img}" ]]; then
 	echo "error: missing ${uboot_img} (U-Boot must be built before target-finalize)" >&2
 	exit 1
 fi
-"${CHECK_SPI_IMG}" "${uboot_img}"
+bash "${CHECK_SPI_IMG}" "${uboot_img}"
 
 # /dev/ttyGS0 only exists while the ACM gadget is bound, so a respawn entry
 # here makes init log "GS0 respawning too fast" on every boot without a USB

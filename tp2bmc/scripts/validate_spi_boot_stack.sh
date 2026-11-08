@@ -198,7 +198,7 @@ echo ""
 echo "=== 5) Built image (layout vs reference) ==="
 img="${1:-${BINARIES_DIR:-${ROOT}/output/images}/u-boot-sunxi-with-spl.bin}"
 if [[ -f "$img" ]]; then
-	"$CHECK_IMG" "$img" || fail=1
+	bash "$CHECK_IMG" "$img" || fail=1
 	if strings "$img" 2>/dev/null | grep -q 'U-Boot SPL 2026.01'; then
 		warn 'image is reference-era 2026.01 — product pin may be 2026.04'
 	fi
