@@ -3,15 +3,15 @@
 # bmcd
 ###########################################################
 
-BMCD_VERSION = v2.3.4
-BMCD_SITE = $(call github,turing-machines,bmcd,$(BMCD_VERSION))
+BMCD_VERSION = f3b8f37d9d20ab366136c9f098691deb95d77d01
+BMCD_SITE = $(call github,danste22,bmcd,$(BMCD_VERSION))
 BMCD_LICENSE = Apache-2.0
 BMCD_LICENSE_FILES = LICENSE
 BMCD_DEPENDENCIES += libopenssl
 BMCD_CARGO_ENV := PKG_CONFIG_ALLOW_CROSS=1
 BMCD_CARGO_ENV += CC_armv7_unknown_linux_gnueabi="arm-linux-gcc"
 
-# A copy of default build commands but with --path amended, since we have a virtual manifest.
+# Workspace root is a virtual manifest; install the bmcd package, not `.`.
 define BMCD_INSTALL_TARGET_CMDS
 	cd $(BMCD_SRCDIR) && \
 	$(TARGET_MAKE_ENV) \
@@ -21,7 +21,7 @@ define BMCD_INSTALL_TARGET_CMDS
 			--offline \
 			--root $(TARGET_DIR)/usr/ \
 			--bins \
-			--path ./ \
+			--path ./bmcd \
 			--force \
 			--locked \
 			-Z target-applies-to-host \
