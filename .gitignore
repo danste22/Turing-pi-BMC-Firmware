@@ -14,3 +14,10 @@ output
 sccache-stats.txt
 sdk-toolchain.tar.gz
 sdk
+docs/baselines/**/api-smoke.log
+docs/baselines/**/hw-validate.log
+docs/baselines/**/playwright.log
+docs/kernel-audit/apply-target.log
+.cursor/
+.idea/
+tests/ui-e2e/node_modules/

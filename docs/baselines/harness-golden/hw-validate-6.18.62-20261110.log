@@ -1,0 +1,77 @@
+=== A — Image and toolchain ===
+PASS  A1 uname -r = 6.18.62
+PASS  A2 tpi present: tpi 1.10.0
+PASS  A2 bmcd: 1148
+      A3 PRETTY_NAME=Turing Pi 2026.11.10 VERSION=2026.11.10-27c8ba11
+      A3 no /etc/tp2/build-id — use build-host git rev-parse
+
+=== B — tcpdump, screen, NAND, SysRq ===
+PASS  B1 tcpdump: tcpdump version 4.99.5
+PASS  B1 tcpdump can capture on lo
+PASS  B1 tcpdump -i eth0 rejected as expected (use br0/ge*/node*)
+PASS  B2 screen: Screen version 5.0.2 (build on 2026-11-10 17:45:56)
+PASS  B2 /usr/bin/node1 exists
+PASS  B2 /usr/bin/node2 exists
+PASS  B2 /usr/bin/node3 exists
+PASS  B2 /usr/bin/node4 exists
+SKIP  B2 interactive UART — run: node1 (Ctrl-A k to quit)
+PASS  B3 SPI NAND 256 MiB (v2.5.x class)
+WARN  B4 kernel.sysrq = 1 (expected 0 on cold boot)
+WARN  B4 no sysrq in /etc/sysctl.conf
+
+=== C — br0 / factory MAC (#238) ===
+PASS  C1 br0 up: mac=c4:ff:84:10:00:ba addr=192.168.0.128/24
+PASS  C1 board MAC matches expected
+FAIL  C1 apply_bmc_mac.sh missing
+WARN  C1 S39bmc-mac missing
+FAIL  C1 set_br0_mac_pre_dhcp.sh missing
+FAIL  C1 set_br0_mac_pre_dhcp not referenced in interfaces(.d) — MAC may miss first DHCP
+WARN  C1 no apply_bmc_mac in /var/log/messages (syslog empty?)
+SKIP  C2 static br0 + ping — lab-only manual
+SKIP  C3 SD tpi.ini MAC — optional manual
+
+=== D — Boot log / kconfig ===
+PASS  D1 no #249 sunxi_ccu No max_rate spam
+FAIL  D2 DE display dependency-cycle flood still present
+      D2 CCU↔RTC cycles present (expected noise)
+WARN  D3 exFAT/F2FS messages in dmesg (review if BMC root card)
+FAIL  D4 CONFIG_F2FS_FS=y
+FAIL  D4 CONFIG_EXFAT_FS=y
+FAIL  D5 GS0 getty still in inittab (expect mdev/S11bmc-otg only)
+
+=== E — #225 MSD by-tpi (static + manual) ===
+FAIL  E helper missing
+FAIL  E mdev.conf hook missing
+      E /dev/disk/by-tpi absent until MSD — manual per node:
+SKIP  E1–E4 full matrix — one node at a time (msd/normal per node)
+
+=== F — I2C / EEPROM / RTC / SMI arbiter ===
+PASS  F1 tpi-i2c-smi-arbiter probe: arbiter on 2502800.i2c via i2c-0 (adapter 0)
+PASS  F2 EEPROM present / MAC matches
+PASS  F3 RTC present
+WARN  F4 optional EMC2301 @0x2f not present
+PASS  F5 no retired RTK-over-I2C/NOSTART path in dmesg
+
+=== G — DSA / switch / network interfaces ===
+PASS  G1 RTL8370MB in dmesg
+PASS  G2–G3 br0, node1–4, ge0/ge1 on bridge
+WARN  G2 no CPU conduit netdev (eth0/end0)
+SKIP  G6 bond hairpin N/A
+
+=== H — USB gadget / routing ===
+PASS  H1–H2 (v2.5.1 model)
+
+=== I — Power / node GPIOs ===
+PASS  I1–I4
+
+=== M — Mode 1 profile ===
+PASS  M1 (flat br0)
+WARN  M no /etc/tp2/network.conf
+
+=== Summary ===
+      PASS=51 FAIL=9 WARN=8 SKIP=7
+      Board: Turing Pi 2 (v2.5.1)
+      Expected board MAC: c4:ff:84:10:00:ba
+      Mode assert: 1
+
+RESULT: FAIL (9 failures) — port bring-up OK; failures are overlay/kconfig hygiene vs harness expectations.

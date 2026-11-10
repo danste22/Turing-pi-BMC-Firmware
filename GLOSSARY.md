@@ -2,6 +2,8 @@
 
 Language for the hive → 6.18 validation work on branch `kernel-6.18`.
 
+**Execution plan (canonical, sole):** [`docs/PLAN.md`](docs/PLAN.md). No separate Cursor plan.
+
 ## Language
 
 **Hive line:**
